@@ -2,6 +2,19 @@ import constants
 import numpy as np
 import random, time
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 class Sim():
     def __init__(self):
         self.z = np.array([0.0, 0.0, 1.0])

@@ -1,27 +1,22 @@
 #!/usr/bin/env python
 
 
-
 import sys
 import numpy as np
 
+
 from PyQt4 import QtCore, QtGui, QtOpenGL
-
-from OpenGL.GL import *
-
 
 from sip import setdestroyonexit
 setdestroyonexit(False)
 
-
 import sys
 from OpenGL.GLU import *
-
 
 # IMPORT OBJECT LOADER
 from objloader import *
 import time, math
-
+import constants as C
 from machineSim import Machine
 
 
@@ -32,16 +27,30 @@ class GLWidget(QtOpenGL.QGLWidget):
 
     def __init__(self, parent=None):
         super(GLWidget, self).__init__(parent)
+        self.setBaseSize(1000, 1200)
+
         self.goal_fps = 60.0
+        self.goal_steptime = 1.0/120.0
+        self.starttime = None
+        self.steps_done = 0
+
         self.avg_frametime = 0.1
         self.avg_fps = 10.0
         self.TTime = time.time()
 
         self.machine = Machine()
         self.machine.physics_tick(0.01)
-        self.MOVE_OBJECT= False
-        self.MOVE_FLOOR = True
+        self.MOVE_OBJECT= True
+        self.MOVE_FLOOR = False
 
+        self.d90 = np.pi/2.0
+        self.d360 = np.pi * 2.0
+        self.camDirection = np.array([self.d90, 0.0])
+        self.camPosition = np.array([0.0, -5.0, 5.0])
+        self.camVectorX = np.array([0.0, 0.0, 0.0])
+        self.camVectorY = np.array([0.0, 0.0, 0.0])
+        self.camVectorZ = np.array([0.0, 0.0, 0.0])
+        self.obtainCamVectors()
 
         self.xRot = 0.0
         self.yRot = 0.0
@@ -64,35 +73,51 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.avg_fps = self.avg_fps*0.5 + 0.5/self.avg_frametime
         self.TTime = time.time()
 
-    def setXRotation(self, angle):
-        self.normalizeAngle(angle)
-        if angle != self.xRot:
-            self.xRot = angle
+    def obtainCamVectors(self):
+        self.camVectorX[0] = np.sin(self.camDirection[0])
+        self.camVectorX[1] = -np.cos(self.camDirection[0])
+        self.camVectorZ[0] = np.cos(self.camDirection[0])*np.cos(self.camDirection[1])
+        self.camVectorZ[1] = np.sin(self.camDirection[0])*np.cos(self.camDirection[1])
+        self.camVectorZ[2] = np.sin(self.camDirection[1])
+        self.camVectorY = np.cross(self.camVectorX, self.camVectorZ)
 
-    def setYRotation(self, angle):
-        self.normalizeAngle(angle)
-        if angle != self.yRot:
-            self.yRot = angle
 
-    def setZRotation(self, angle):
-        self.normalizeAngle(angle)
-        if angle != self.zRot:
-            self.zRot = angle
 
-    def setXPosition(self, dx):
-        self.xPos += dx/100.0
 
-    def setYPosition(self, dy):
-        self.yPos += dy/100.0
+    def changeZRotation(self, d_angle):
+        angle = self.camDirection[0]+d_angle
+        angle = self.normalizeAngle(angle)
+        self.camDirection[0] = angle
+        self.obtainCamVectors()
+
+    def changeXRotation(self, d_angle):
+        angle = self.camDirection[1] + d_angle
+        angle = sorted( (-self.d90, angle, self.d90) )[1]
+
+        self.camDirection[1] = angle
+        self.obtainCamVectors()
+
+    def changeXPosition(self, dx):
+        self.camPosition += self.camVectorX * dx
+
+    def changeYPosition(self, dy):
+        self.camPosition += self.camVectorY * dy
+
 
     def setZoom(self, change):
         if change < 0:
-            self.zoomLevel -= (1.0 + abs(self.zoomLevel)**0.5)
+            self.camPosition -= self.camVectorZ * 3
         if change > 0:
-            self.zoomLevel += (1.0 + abs(self.zoomLevel)**0.5)
+            self.camPosition += self.camVectorZ * 3
 
     def toRadians(self, degree):
         return degree*0.017453292519943*(1.0/16)
+
+    def normalizeAngle(self, angle):
+        angle = angle % self.d360
+        return angle
+
+
 
     def initializeGL(self):
         print "INIT"
@@ -107,11 +132,11 @@ class GLWidget(QtOpenGL.QGLWidget):
         glEnable(GL_LIGHT0)
         glEnable(GL_DEPTH_TEST)
 
-        #glLightfv(GL_LIGHT0, GL_POSITION,  (-40, 200, 100, 0.0))
-        #glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
+        glLightfv(GL_LIGHT0, GL_POSITION,  (-40, 200, 100, 0.0))
+        glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
         #glLightfv(GL_LIGHT0, GL_DIFFUSE, (0.5, 0.5, 0.5, 1.0))
-        #glEnable(GL_LIGHT0)
-        #glEnable(GL_LIGHTING)
+        glEnable(GL_LIGHT0)
+        glEnable(GL_LIGHTING)
         glEnable(GL_COLOR_MATERIAL)
         glEnable(GL_DEPTH_TEST)
         glShadeModel(GL_SMOOTH)
@@ -131,16 +156,12 @@ class GLWidget(QtOpenGL.QGLWidget):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         glPushMatrix()
-        radians = self.toRadians(np.array([self.zRot, self.xRot]))
-        x = math.cos(radians[0])*self.xPos + math.sin(radians[0])*self.yPos
-        y = math.sin(radians[0])*self.xPos + math.cos(radians[0])*self.yPos
-        z = math.sin(radians[1])*self.yPos
+        glLoadIdentity()
 
-        glTranslate(0.0, 0.0, self.zoomLevel)
-        glRotate(self.xRot / 16.0, 1.0, 0.0, 0.0)
-        glRotate(self.yRot / 16.0, 0.0, 1.0, 0.0)
-        glRotate(self.zRot / 16.0, 0.0, 0.0, 1.0)
-        glTranslate(x*10, -y*10, -z*10)
+        glRotate(-self.d90 * 57.2957795, 1.0, 0.0, 0.0)
+        glRotate(self.camDirection[1] * -57.2957795, 1.0, 0.0, 0.0)
+        glRotate((self.camDirection[0]-self.d90) * -57.2957795, 0.0, 0.0, 1.0)
+        glTranslate(-self.camPosition[0], -self.camPosition[1], -self.camPosition[2])
 
 
 
@@ -148,7 +169,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         downrange_x = 1*self.machine.P[0]*self.MOVE_FLOOR
         downrange_y = 1*self.machine.P[1]*self.MOVE_FLOOR
         glPushMatrix()
-        glTranslate(0.0, 0.0, 0.2)
+        glTranslate(0.0, 0.0, -0.1)
         self.drawFloor(10, tile_r, downrange_x, downrange_y) #Floor of hexagonals
         glPopMatrix()
 
@@ -167,8 +188,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         side = min(width, height)
         if side < 0:
             return
-        viewport = (1000,700)
-
+        viewport = (1000,800)
         #glViewport((width - side) // 2, (height - side) // 2, side, side)
         glViewport(0,0, viewport[0], viewport[1])
 
@@ -180,23 +200,26 @@ class GLWidget(QtOpenGL.QGLWidget):
         glLoadIdentity()
         glTranslated(0.0, 0.0, -30.0)
 
+
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
+
 
     def wheelEvent(self,event):
         tick = event.delta()/120
         self.setZoom(tick)
+
 
     def mouseMoveEvent(self, event):
         dx = event.x() - self.lastPos.x()
         dy = event.y() - self.lastPos.y()
 
         if event.buttons() & QtCore.Qt.LeftButton:
-            self.setXRotation(self.xRot + 8 * dy)
-            self.setZRotation(self.zRot + 8 * dx)
+            self.changeXRotation(0.002 * dy)
+            self.changeZRotation(0.002 * dx)
         elif event.buttons() & QtCore.Qt.RightButton:
-            self.setXPosition(8 * dx)
-            self.setYPosition(8 * -dy)
+            self.changeXPosition(0.06 * -dx)
+            self.changeYPosition(0.06 * dy)
 
         self.lastPos = event.pos()
 
@@ -208,21 +231,12 @@ class GLWidget(QtOpenGL.QGLWidget):
 
 
 
-    def normalizeAngle(self, angle):
-        while (angle < 0):
-            angle += 360 * 16
-
-        while (angle > 360 * 16):
-            angle -= 360 * 16
-
-
-
     def drawMachine(self, machine, hull, mainmotor, sidemotor):
         pos, dir = machine.get_hull_pos_and_ax_angle()
         ax0, deg0 = dir
 
         glPushMatrix()
-        glTranslate(-pos[0]*self.MOVE_OBJECT,-pos[1]*self.MOVE_OBJECT, -pos[2])
+        glTranslate(pos[0]*self.MOVE_OBJECT, pos[1]*self.MOVE_OBJECT, pos[2])
 
         glPushMatrix()
         glRotate(deg0, ax0[0], ax0[1], ax0[2])
@@ -234,7 +248,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         e_pos, e_ax_angle = machine.get_engine_pos_and_ax_angle(1)
         e_axis = e_ax_angle[0]
         e_angle = e_ax_angle[1]
-        glTranslate(-e_pos[0]*2, -e_pos[1]*2, -e_pos[2]*2)
+        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
         glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
         glCallList(mainmotor.gl_list)
         #glCallList(stick_obj.gl_list)
@@ -244,7 +258,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         e_pos, e_ax_angle = machine.get_engine_pos_and_ax_angle(2)
         e_axis = e_ax_angle[0]
         e_angle = e_ax_angle[1]
-        glTranslate(-e_pos[0]*2, -e_pos[1]*2, -e_pos[2]*2)
+        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
         glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
         glCallList(mainmotor.gl_list)
         #glCallList(stick_obj.gl_list)
@@ -254,7 +268,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         e_pos, e_ax_angle = machine.get_engine_pos_and_ax_angle(3)
         e_axis = e_ax_angle[0]
         e_angle = e_ax_angle[1]
-        glTranslate(-e_pos[0]*2, -e_pos[1]*2, -e_pos[2]*2)
+        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
         glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
         glCallList(sidemotor.gl_list)
         #glCallList(stick_obj.gl_list)

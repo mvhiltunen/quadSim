@@ -62,9 +62,8 @@ class Machine():
         F3 = T3 * self.E3_dir
         F4 = T4 * self.E4_dir
 
-        self.E1_dir = C.unitize(np.array([0.27*np.cos(self.ticks*0.005), 0.0, 1.0]))
-        self.E2_dir = C.unitize(np.array([0.27*np.cos(self.ticks*0.005), 0.0, 1.0]))
-
+        self.E1_dir = C.unitize(np.array([-0.27*np.cos(self.ticks*0.02+1.5), 0.0, 1.0]))
+        self.E2_dir = C.unitize(np.array([0.27*np.cos(self.ticks*0.02+1.5), 0.0, 1.0]))
 
 
         I1 = F1 * t
