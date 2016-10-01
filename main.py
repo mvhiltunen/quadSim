@@ -13,6 +13,8 @@ setdestroyonexit(False)
 import sys
 from OpenGL.GLU import *
 
+
+
 # IMPORT OBJECT LOADER
 from objloader import *
 import time, math
@@ -27,7 +29,10 @@ class GLWidget(QtOpenGL.QGLWidget):
 
     def __init__(self, parent=None):
         super(GLWidget, self).__init__(parent)
+        self.z = np.array([0.0, 0.0, 1.0])
         self.setBaseSize(1000, 1200)
+        self.W_DOWN = self.A_DOWN = self.S_DOWN = self.D_DOWN = self.SPACE_DOWN = False
+        self.UP_DOWN = self.DOWN_DOWN = self.RIGHT_DOWN = self.LEFT_DOWN = self.CTRL_DOWN = False
 
         self.goal_fps = 60.0
         self.goal_steptime = 1.0/120.0
@@ -120,7 +125,7 @@ class GLWidget(QtOpenGL.QGLWidget):
 
 
     def initializeGL(self):
-        print "INIT"
+        print "InitGL"
         lightPos = (5.0, 5.0, 10.0, 1.0)
         reflectance1 = (0.8, 0.1, 0.0, 1.0)
         reflectance2 = (0.0, 0.8, 0.2, 1.0)
@@ -163,8 +168,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         glRotate((self.camDirection[0]-self.d90) * -57.2957795, 0.0, 0.0, 1.0)
         glTranslate(-self.camPosition[0], -self.camPosition[1], -self.camPosition[2])
 
-
-
         tile_r = 10.39232 # = 5.196160*2
         downrange_x = 1*self.machine.P[0]*self.MOVE_FLOOR
         downrange_y = 1*self.machine.P[1]*self.MOVE_FLOOR
@@ -178,7 +181,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.drawMachine(self.machine, self.hull_obj, self.mainmotor_obj, self.sidemotor_obj)
         glFinish()
         glPopMatrix()
-
 
         glPopMatrix()
 
@@ -201,6 +203,55 @@ class GLWidget(QtOpenGL.QGLWidget):
         glTranslated(0.0, 0.0, -30.0)
 
 
+    def keyPressEvent(self, event):
+        K = event.key()
+        if K == 16777235: #UP
+            self.UP_DOWN = True
+        if K == 16777237: #DOWN
+            self.DOWN_DOWN = True
+        if K == 16777234: #LEFT
+            self.LEFT_DOWN = True
+        if K == 16777236: #RIGHT
+            self.RIGHT_DOWN = True
+        if K == 87: #W
+            self.W_DOWN = True
+        if K == 65:#A
+            self.A_DOWN = True
+        if K == 83:#S
+            self.S_DOWN = True
+        if K == 68:#D
+            self.D_DOWN = True
+        if K == 32:
+            self.SPACE_DOWN = True
+        if K == 16777249:
+            self.CTRL_DOWN = True
+        #print event.key()
+
+
+    def keyReleaseEvent(self, event):
+        K = event.key()
+        if K == 16777235: #UP
+            self.UP_DOWN = False
+        if K == 16777237: #DOWN
+            self.DOWN_DOWN = False
+        if K == 16777234: #LEFT
+            self.LEFT_DOWN = False
+        if K == 16777236: #RIGHT
+            self.RIGHT_DOWN = False
+        if K == 87: #W
+            self.W_DOWN = False
+        if K == 65:#A
+            self.A_DOWN = False
+        if K == 83:#S
+            self.S_DOWN = False
+        if K == 68:#D
+            self.D_DOWN = False
+        if K == 32:
+            self.SPACE_DOWN = False
+        if K == 16777249:
+            self.CTRL_DOWN = False
+
+
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
 
@@ -213,7 +264,6 @@ class GLWidget(QtOpenGL.QGLWidget):
     def mouseMoveEvent(self, event):
         dx = event.x() - self.lastPos.x()
         dy = event.y() - self.lastPos.y()
-
         if event.buttons() & QtCore.Qt.LeftButton:
             self.changeXRotation(0.002 * dy)
             self.changeZRotation(0.002 * dx)
@@ -226,8 +276,34 @@ class GLWidget(QtOpenGL.QGLWidget):
 
     def advance(self):
         self.updateFPStime()
+        self.keyPressHandle()
         self.machine.physics_tick(self.avg_frametime)
         self.updateGL()
+
+
+    def keyPressHandle(self):
+        if self.LEFT_DOWN:
+            self.camDirection[0] += 0.12
+        if self.RIGHT_DOWN:
+            self.camDirection[0] -= 0.12
+        if self.UP_DOWN:
+            self.camDirection[1] += 0.04
+        if self.DOWN_DOWN:
+            self.camDirection[1] -= 0.04
+        if self.W_DOWN:
+            self.camPosition += self.camVectorZ * 3
+        if self.S_DOWN:
+            self.camPosition -= self.camVectorZ * 2
+        if self.A_DOWN:
+            self.camPosition -= self.camVectorX * 2
+        if self.D_DOWN:
+            self.camPosition += self.camVectorX * 2
+        if self.SPACE_DOWN:
+            self.camPosition += self.z
+        if self.CTRL_DOWN:
+            self.camPosition -= self.z
+        self.camDirection[1] = sorted((-self.d90, self.camDirection[1], self.d90))[1]
+        self.obtainCamVectors()
 
 
 
