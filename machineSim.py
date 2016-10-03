@@ -11,8 +11,6 @@ class Machine(Process):
 
         self.V_log = [np.array([0.0,0.0,0.0], np.float64)]
         self.A_apx = np.array([0.0, 0.0, 0.0], np.float64)
-        self.previous_check = time.time()
-        self.dt = 0.012
 
         self.z = np.array([0.0, 0.0, 1.0], np.float64)
         self.x = np.array([1.0, 0.0, 0.0], np.float64)
@@ -24,13 +22,16 @@ class Machine(Process):
         self.E3_pos0 = np.array([(0.8+C.R2),0.0,0.0])
         self.E4_pos0 = np.array([-(0.8+C.R2),0.0,0.0])
 
+        self.E1_pos = self.E1_pos0.copy()
+        self.E2_pos = self.E2_pos0.copy()
+        self.E3_pos = self.E3_pos0.copy()
+        self.E4_pos = self.E4_pos0.copy()
+
         self.P = np.array([0.0,0.0,1.0], np.float64)
         self.V = np.array([0.0,0.0,0.0], np.float64)
         self.W = np.array([0.0,0.0,0.0], np.float64)
 
         self.ROT_M = C.rotation_matrix(self.z, 0.0)
-
-
 
         self.E1_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
         self.E2_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
@@ -38,13 +39,17 @@ class Machine(Process):
         self.E4_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
 
         adjust = 1.0
-
         self.E1_pwr = 0.153 * adjust
         self.E2_pwr = 0.153 * adjust
         self.E3_pwr = 0.1452 * adjust
         self.E4_pwr = 0.1452 * adjust
 
         self.ticks = 0
+        self.on = False
+        self.simulation_time = None
+        self.previous_check = time.time()
+        self.dt = 0.012
+
 
     def physics_tick(self, t):
         self.ticks += 1
@@ -235,10 +240,12 @@ class Machine(Process):
         axle0, angle0 = C.axis_angle(self.ROT_M)
         self.ROT_M = C.rotation_matrix(C.unitize(axle0), angle0)
 
+
     def get_hull_pos_and_ax_angle(self):
         ax, angle = C.axis_angle(self.ROT_M)
         angle = angle*57.30659025
         return self.P, (ax, angle)
+
 
     def get_engine_pos_and_ax_angle(self, engine_i):
         if engine_i == 1:
@@ -259,19 +266,69 @@ class Machine(Process):
             angle = angle*57.30659025
         return pos, (ax, angle)
 
-    '''
+
+    def send_full_state(self):
+        d = {}
+        d["P"] = self.P
+        d["V"] = self.V
+        d["W"] = self.W
+        d["ROT_M"] = self.ROT_M
+        d["A_apx"] = self.A_apx
+        d["E1_pos"] = self.E1_pos
+        d["E1_dir"] = self.E1_dir
+        d["E1_pwr"] = self.E1_pwr
+        d["E2_pos"] = self.E2_pos
+        d["E2_dir"] = self.E2_dir
+        d["E2_pwr"] = self.E2_pwr
+        d["E3_pos"] = self.E3_pos
+        d["E3_dir"] = self.E3_dir
+        d["E3_pwr"] = self.E3_pwr
+        d["E4_pos"] = self.E4_pos
+        d["E4_dir"] = self.E4_dir
+        d["E4_pwr"] = self.E4_pwr
+        return d
+
+
+    def get_position_info(self):
+        d = dict()
+        d["hull"] = self.get_hull_pos_and_ax_angle()
+        d["E1"] = self.get_engine_pos_and_ax_angle(1)
+        d["E2"] = self.get_engine_pos_and_ax_angle(2)
+        d["E3"] = self.get_engine_pos_and_ax_angle(3)
+        d["E4"] = self.get_engine_pos_and_ax_angle(4)
+        return d
+
+
+    def stop(self):
+        self.on = False
+
+
+    def execute_cmd(self, command):
+        return self.__getattribute__(command[0])(*command[1])
+
+
     def run(self):
         self.simulation_time = time.time()
-        self.timestep =
-        Q = Queue(23)
-        while True:
+        self.ticks = 0
+        self.dt = 0.012
+        self.slack_coefficent = 0.3
+        self.on = True
+        while self.on:
             while not self.command_que.empty():
                 cmd = self.command_que.get()
                 result = self.execute_cmd(cmd)
                 if result:
                     self.result_que.put(result)
-                
-    '''
+            self.physics_tick(self.dt)
+            self.simulation_time += self.dt
+            delta = self.simulation_time - time.time()
+            if delta > 0:
+                if delta > self.slack_coefficent * self.dt:
+                    self.dt = self.dt * 0.98
+                    print "timestep lowered", self.dt
+                time.sleep(delta)
+
+
 
 
 
@@ -279,20 +336,20 @@ class Machine(Process):
 
 
 if __name__ == '__main__':
-    S = Machine()
+    q_cmd = Queue(20)
+    q_res = Queue(20)
+    M = Machine(q_cmd, q_res)
     tt  = time.time()
     t = 1.0/60
-    for i in range(60*10):
-        if i%30 == 0:
-            p, att = S.get_hull_pos_and_ax_angle()
-            print "Pos:", p
-            #print "Dir:", att
-        S.physics_tick(t)
-        S.control_tick(t)
-
-
-
-
+    M.start()
+    for i in range(10):
+        time.sleep(2)
+        cmd = ["get_position_info", []]
+        q_cmd.put(cmd)
+        tt = time.time()
+        res = q_res.get()
+        tt = time.time() -tt
+        print res, tt
 
 
 
