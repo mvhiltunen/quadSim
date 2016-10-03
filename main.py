@@ -22,6 +22,7 @@ import constants as C
 from machineSim import Machine
 
 
+
 class GLWidget(QtOpenGL.QGLWidget):
     xRotationChanged = QtCore.pyqtSignal(int)
     yRotationChanged = QtCore.pyqtSignal(int)
@@ -30,22 +31,13 @@ class GLWidget(QtOpenGL.QGLWidget):
     def __init__(self, parent=None):
         super(GLWidget, self).__init__(parent)
         self.z = np.array([0.0, 0.0, 1.0])
-        self.setBaseSize(1000, 1200)
         self.W_DOWN = self.A_DOWN = self.S_DOWN = self.D_DOWN = self.SPACE_DOWN = False
         self.UP_DOWN = self.DOWN_DOWN = self.RIGHT_DOWN = self.LEFT_DOWN = self.CTRL_DOWN = False
 
-        self.goal_fps = 60.0
-        self.goal_steptime = 1.0/120.0
-        self.starttime = None
-        self.steps_done = 0
-
-        self.avg_frametime = 0.1
-        self.avg_fps = 10.0
-        self.TTime = time.time()
-
         self.machine = Machine()
         self.machine.physics_tick(0.01)
-        self.MOVE_OBJECT= True
+
+        self.MOVE_OBJECT= False
         self.MOVE_FLOOR = False
 
         self.d90 = np.pi/2.0
@@ -57,14 +49,13 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.camVectorZ = np.array([0.0, 0.0, 0.0])
         self.obtainCamVectors()
 
-        self.xRot = 0.0
-        self.yRot = 0.0
-        self.zRot = 0.0
+        self.goal_fps = 60.0
+        self.goal_steptime = 1.0 / 120.0
+        self.framecount = 0
 
-        self.xPos = 0.0
-        self.yPos = 0.0
-        self.zPos = 0.0
-        self.zoomLevel = 1.0
+        self.avg_frametime = 0.1
+        self.avg_fps = 10.0
+        self.TTime = time.time()
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.advance)
@@ -73,10 +64,12 @@ class GLWidget(QtOpenGL.QGLWidget):
 
     def updateFPStime(self):
         newtime = time.time()
-        frametime = newtime-self.TTime
-        self.avg_frametime = self.avg_frametime*0.5 + frametime
-        self.avg_fps = self.avg_fps*0.5 + 0.5/self.avg_frametime
+        frametime = (newtime-self.TTime)/self.framecount
+        self.avg_frametime = self.avg_frametime*0.5 + frametime*0.5
+        self.avg_fps = self.avg_fps*0.5 + 0.5/frametime
         self.TTime = time.time()
+        self.framecount = 0
+
 
     def obtainCamVectors(self):
         self.camVectorX[0] = np.sin(self.camDirection[0])
@@ -85,9 +78,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.camVectorZ[1] = np.sin(self.camDirection[0])*np.cos(self.camDirection[1])
         self.camVectorZ[2] = np.sin(self.camDirection[1])
         self.camVectorY = np.cross(self.camVectorX, self.camVectorZ)
-
-
-
 
     def changeZRotation(self, d_angle):
         angle = self.camDirection[0]+d_angle
@@ -98,7 +88,6 @@ class GLWidget(QtOpenGL.QGLWidget):
     def changeXRotation(self, d_angle):
         angle = self.camDirection[1] + d_angle
         angle = sorted( (-self.d90, angle, self.d90) )[1]
-
         self.camDirection[1] = angle
         self.obtainCamVectors()
 
@@ -127,10 +116,6 @@ class GLWidget(QtOpenGL.QGLWidget):
     def initializeGL(self):
         print "InitGL"
         lightPos = (5.0, 5.0, 10.0, 1.0)
-        reflectance1 = (0.8, 0.1, 0.0, 1.0)
-        reflectance2 = (0.0, 0.8, 0.2, 1.0)
-        reflectance3 = (0.2, 0.2, 1.0, 1.0)
-
 
         glLightfv(GL_LIGHT0, GL_POSITION, lightPos)
         glEnable(GL_LIGHTING)
@@ -138,7 +123,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         glEnable(GL_DEPTH_TEST)
 
         glLightfv(GL_LIGHT0, GL_POSITION,  (-40, 200, 100, 0.0))
-        glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
+        #glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
         #glLightfv(GL_LIGHT0, GL_DIFFUSE, (0.5, 0.5, 0.5, 1.0))
         glEnable(GL_LIGHT0)
         glEnable(GL_LIGHTING)
@@ -154,15 +139,16 @@ class GLWidget(QtOpenGL.QGLWidget):
 
         glEnable(GL_NORMALIZE)
         glClearColor(0.0, 0.0, 0.0, 1.0)
+        glLoadIdentity()
 
 
 
     def paintGL(self):
+        self.framecount += 1
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         glPushMatrix()
         glLoadIdentity()
-
         glRotate(-self.d90 * 57.2957795, 1.0, 0.0, 0.0)
         glRotate(self.camDirection[1] * -57.2957795, 1.0, 0.0, 0.0)
         glRotate((self.camDirection[0]-self.d90) * -57.2957795, 0.0, 0.0, 1.0)
@@ -179,9 +165,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         glPushMatrix()
         glTranslate(0.0, 0.0, 0.0)
         self.drawMachine(self.machine, self.hull_obj, self.mainmotor_obj, self.sidemotor_obj)
-        glFinish()
         glPopMatrix()
-
         glPopMatrix()
 
 
@@ -275,7 +259,8 @@ class GLWidget(QtOpenGL.QGLWidget):
 
 
     def advance(self):
-        self.updateFPStime()
+        if self.framecount > 20:
+            self.updateFPStime()
         self.keyPressHandle()
         self.machine.physics_tick(self.avg_frametime)
         self.updateGL()
@@ -283,13 +268,13 @@ class GLWidget(QtOpenGL.QGLWidget):
 
     def keyPressHandle(self):
         if self.LEFT_DOWN:
-            self.camDirection[0] += 0.12
+            self.camDirection[0] += 0.13
         if self.RIGHT_DOWN:
-            self.camDirection[0] -= 0.12
+            self.camDirection[0] -= 0.13
         if self.UP_DOWN:
-            self.camDirection[1] += 0.04
+            self.camDirection[1] += 0.055
         if self.DOWN_DOWN:
-            self.camDirection[1] -= 0.04
+            self.camDirection[1] -= 0.055
         if self.W_DOWN:
             self.camPosition += self.camVectorZ * 3
         if self.S_DOWN:
@@ -395,9 +380,11 @@ class GLWidget(QtOpenGL.QGLWidget):
 
         glPopMatrix()
 
-if __name__ == '__main__':
 
+
+if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
     mainWin = GLWidget()
     mainWin.show()
     sys.exit(app.exec_())
+

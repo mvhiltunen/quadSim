@@ -1,12 +1,14 @@
 import numpy as np
 import random, time
 import constants as C
+from multiprocessing import Process, Queue
 
 
+class Machine(Process):
+    def __init__(self, command_que=None, result_que=None):
+        self.command_que = command_que
+        self.result_que = result_que
 
-class Machine():
-
-    def __init__(self):
         self.V_log = [np.array([0.0,0.0,0.0], np.float64)]
         self.A_apx = np.array([0.0, 0.0, 0.0], np.float64)
         self.previous_check = time.time()
@@ -32,7 +34,7 @@ class Machine():
 
         self.E1_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
         self.E2_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
-        self.E3_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
+        self.E3_dir = C.unitize(np.array([0.1, 0.0, 1.0]))
         self.E4_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
 
         adjust = 1.0
@@ -257,7 +259,19 @@ class Machine():
             angle = angle*57.30659025
         return pos, (ax, angle)
 
-
+    '''
+    def run(self):
+        self.simulation_time = time.time()
+        self.timestep =
+        Q = Queue(23)
+        while True:
+            while not self.command_que.empty():
+                cmd = self.command_que.get()
+                result = self.execute_cmd(cmd)
+                if result:
+                    self.result_que.put(result)
+                
+    '''
 
 
 
