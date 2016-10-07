@@ -1,13 +1,13 @@
 import numpy as np
 import random, time
 import constants as C
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Value, Array
 
 
 class Machine(Process):
-    def __init__(self, command_que=None, result_que=None):
-        self.command_que = command_que
-        self.result_que = result_que
+    def __init__(self, command_value=None, result_array=None):
+        self.command_value = command_value
+        self.result_array = result_array
 
         self.V_log = [np.array([0.0,0.0,0.0], np.float64)]
         self.A_apx = np.array([0.0, 0.0, 0.0], np.float64)
@@ -54,7 +54,7 @@ class Machine(Process):
     def physics_tick(self, t):
         self.ticks += 1
 
-        self.P = self.P + t*self.V
+        self.P += t*self.V
         if self.P[2] < 0.0:
             self.P[2] = 0.0
             self.V = self.V*0.9
@@ -290,8 +290,8 @@ class Machine(Process):
 
 
     def get_position_info(self):
-        d = dict()
-        d["hull"] = self.get_hull_pos_and_ax_angle()
+        ra = self.result_array
+        ra[0:3], (A[3:6], A[6]) = self.get_hull_pos_and_ax_angle()
         d["E1"] = self.get_engine_pos_and_ax_angle(1)
         d["E2"] = self.get_engine_pos_and_ax_angle(2)
         d["E3"] = self.get_engine_pos_and_ax_angle(3)
@@ -314,13 +314,10 @@ class Machine(Process):
         self.slack_coefficent = 0.3
         self.on = True
         while self.on:
-            while not self.command_que.empty():
-                cmd = self.command_que.get()
-                result = self.execute_cmd(cmd)
-                if result:
-                    self.result_que.put(result)
+            self.physics_tick(self.dt)
             self.physics_tick(self.dt)
             self.simulation_time += self.dt
+            self.upload_status()
             delta = self.simulation_time - time.time()
             if delta > 0:
                 if delta > self.slack_coefficent * self.dt:

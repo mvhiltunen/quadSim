@@ -1,12 +1,25 @@
 import time
-
-def func(t):
-    while True:
-        time.sleep(t)
-        L = list(range(200))
-        S = sum(L)
+from multiprocessing import Process, Manager, Value
 
 
+def foo(data, name=''):
+    print type(data), data.value, name, "P"
+    data.value += 1
 
-if __name__ == '__main__':
-    func(0.001)  #0.001 not visible effect. 0.0001 significant load at shitty laptop cpu
+if __name__ == "__main__":
+    manager = Manager()
+    x = manager.Value('i', 0)
+    y = Value('i', 0)
+
+    for i in range(5):
+        Process(target=foo, args=(x, 'x')).start()
+        Process(target=foo, args=(y, 'y')).start()
+
+    print 'Before waiting: '
+    print 'x = {0}'.format(x.value)
+    print 'y = {0}'.format(y.value)
+
+    time.sleep(1.0)
+    print 'After waiting: '
+    print 'x = {0}'.format(x.value)
+    print 'y = {0}'.format(y.value)
