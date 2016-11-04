@@ -1,10 +1,19 @@
 import numpy as np
 import random, time
 import constants as C
+from multiprocessing import Process, Queue, Value, Array, RawValue, Manager
+import multiprocessing
 
-
-class Machine:
-    def __init__(self):
+class MachineP(Process):
+    def __init__(self, command_queue=None, result_duct=None, parameters=None):
+        super(MachineP, self).__init__()
+        self.command_queue = command_queue
+        self.result_duct = result_duct
+        self.parameters = parameters
+        if type(result_duct) == multiprocessing.managers.DictProxy:
+            self.transmit_mode = "dict"
+        elif type(result_duct) == multiprocessing.queues.Queue:
+            self.transmit_mode = "queue"
 
         self.V_log = [np.array([0.0,0.0,0.0], np.float64)]
         self.A_apx = np.array([0.0, 0.0, 0.0], np.float64)
@@ -41,24 +50,37 @@ class Machine:
         self.E3_pwr = 0.1452 * adjust
         self.E4_pwr = 0.1452 * adjust
 
+        self.legal_commands = {"stop":True,
+                               "set_up":True,
+                               "steer":True,
+                               "give_full_state":True}
         self.ticks = 0
+        self.eval_tick = 0
+        self.next_command_resolve = 0
+        self.next_frametime_eval = 0
+        self.next_update = 0
         self.on = False
         self.simulation_time = time.time()
-        self.previous_check = time.time()
-        self.dt = 0.012
+        self.dt = 0.01
+        self.min_dt = 0.003
+        self.frametime_eval_time = 0.1
+        self.update_time = 0.01
+        if self.parameters:
+            self.min_dt = self.parameters["min_dt"]
+            self.frametime_eval_time = self.parameters["frametime_eval_time"]
+            self.update_time = self.parameters["update_time"]
+            print "HERE"
+        self.frametime_eval_interval = 10
+        self.update_interval = 2
+        self.command_resove_interval = 4
+        self.offset_list = np.zeros(100, np.float32)
+        self.testing = True
 
-    def reset_time(self):
-        self.simulation_time = time.time()
 
 
-    def physics_tick(self, dt=None):
+    def physics_tick(self, t):
+        self.simulation_time += t
         self.ticks += 1
-        if dt:
-            self.simulation_time += dt
-            t = dt
-        else:
-            t = time.time() - self.simulation_time
-            t = min(t, 0.05)
 
         self.P += t*self.V
         if self.P[2] < 0.0:
@@ -202,8 +224,8 @@ class Machine:
         return pos, (ax, angle)
 
 
-    def get_full_state(self):
-        d = {}
+    def send_full_state(self):
+        d = dict()
         d["P"] = self.P
         d["V"] = self.V
         d["W"] = self.W
@@ -223,8 +245,9 @@ class Machine:
         d["E4_pwr"] = self.E4_pwr
         return d
 
+
     def get_draw_info(self):
-        d = {}
+        d = dict()
         d["hull_pos"], d["hull_ax_angle"] = self.get_hull_pos_and_ax_angle()
         d["E1_pos"], d["E1_ax_angle"] = self.get_engine_pos_and_ax_angle(1)
         d["E2_pos"], d["E2_ax_angle"] = self.get_engine_pos_and_ax_angle(2)
@@ -232,15 +255,130 @@ class Machine:
         d["E4_pos"], d["E4_ax_angle"] = self.get_engine_pos_and_ax_angle(4)
         return d
 
+    def update_results(self):
+        d = self.get_draw_info()
+        if self.transmit_mode == "dict":
+            self.result_duct["draw_info"] = d
+        elif self.transmit_mode == "queue":
+            self.result_duct.put(d, False)
+        self.next_update = self.ticks + self.update_interval
 
+    def stop(self):
+        self.on = False
+
+    def resolve_commands(self):
+        while not self.command_queue.empty():
+            command = self.command_queue.get()
+            self.execute_cmd(command)
+        self.next_command_resolve = self.ticks+self.command_resove_interval
+
+    def execute_cmd(self, command):
+        if command[0] in self.legal_commands:
+            self.__getattribute__(command[0])(*command[1])
+
+
+    def run(self):
+        self.ticks = 0
+        self.eval_tick = 0
+        self.dt = 0.01
+        self.min_dt = 0.00025               #PP
+        self.update_time = 0.01             #PP
+        self.frametime_eval_time = 0.1      #PP
+        self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
+        self.simulation_time = time.time()
+        self.on = True
+        while self.on:
+            offset = self.simulation_time - time.time()
+            if offset > self.dt:
+                time.sleep(offset)
+            self.physics_tick(self.dt)
+            if self.ticks >= self.next_command_resolve:
+                self.resolve_commands()
+            if self.ticks >= self.next_update:
+                self.update_results()
+            if self.ticks >= self.next_frametime_eval:
+                self.update_frametime()
+
+        self.kill_report()
+
+
+    def update_frametime(self):
+        self.eval_tick += 1
+        #MEASURE OFFSET AND ADJUST DT
+        offset = self.simulation_time - time.time()
+        self.offset_list[self.eval_tick % 100] = abs(offset)
+        if offset > 0:
+            gain_coeff = abs(offset / self.dt)
+            gain_coeff = min(0.9, gain_coeff)
+            self.dt = max(self.min_dt, (1.0-gain_coeff)*self.dt)
+        elif offset < 0:
+            gain = offset / self.frametime_eval_interval
+            gain_coeff = abs(gain / self.dt)
+            gain_coeff = min(0.9, gain_coeff)           #PP
+            self.dt *= (1.0 + gain_coeff)
+        #UPDATE INTERVAL VALUES ACCORDING TO NEW DT
+        self.update_interval = int(self.update_time / self.dt)
+        self.command_resove_interval = self.update_interval * 2
+        self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
+        self.next_frametime_eval = self.ticks + self.frametime_eval_interval
+        if self.eval_tick % 10 == 0 and self.testing:
+            print "dt:",self.dt
+            print "Offset:", offset   #remove
+            print "update_interval:", self.update_interval
+            print ""
+
+
+    def kill_report(self):
+        k_report = dict()
+        avg_offset = sum(self.offset_list)/float(len(self.offset_list)) #remove
+        k_report["avg_offset"] = avg_offset
+        k_report["offset_list"] = self.offset_list
+        k_report["dt"] = self.dt
+        if self.transmit_mode == "dict":
+            self.result_duct["kill_report"] = k_report
+        elif self.transmit_mode == "queue":
+            self.result_duct.put(k_report, False)
 
 
 
 if __name__ == '__main__':
-    M = Machine()
-    tt  = time.time()
-    for i in range(10):
-        M.physics_tick()
+    machine_parameters ={"frametime_eval_time":0.1,
+                         "min_dt":0.00025,
+                         "update_time":0.01,
+                         "max_gain_coeff":0.9}
+    manager = Manager()
+    status = manager.dict()
+    status_que = Queue(1000)
+    command_que = Queue(100)
+    kill_cmd = ["stop", []]
+
+    machine = MachineP(command_queue=command_que, result_duct=status, parameters=machine_parameters)
+    print "start parallelisation..."
+    machine.start()
+    time.sleep(11)
+    command_que.put(kill_cmd)
+    time.sleep(0.1)
+    k_report = status["kill_report"]
+    print "Kill report:"
+    for p in k_report.items():
+        print p
+    print "Finished"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

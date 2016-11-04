@@ -126,8 +126,8 @@ translate([-tile_sep*c30,-tile_sep*s30,0]) HexTile();
 */
 
 
-tilt1 = 0;
-tilt2 = 70;
+tilt1 = 20;
+tilt2 = 20;
 tilt3 = 0;
 
 H0 = 40;
