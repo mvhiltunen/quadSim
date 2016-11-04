@@ -38,12 +38,19 @@ identity = np.asarray([[1.0, 0.0, 0.0],
                        [0.0, 1.0, 0.0],
                        [0.0, 0.0, 1.0]], np.float64)
 
+default_parameters = {"mode":"single",
+                      "min_dt":0.00025,
+                      "goal_fps":60,
+                      "frametime_eval_time":0.1,
+                      "update_time":0.01,
+                      "max_gain_coeff":0.9}
+
+
 def unitize(v):
     leng = get_len(v)
     if leng == 0.0:
         return v
     return v/get_len(v)
-
 
 def get_thrust(engine, power):
     return efficiencies[engine] * power * max_power
@@ -125,30 +132,6 @@ def get_angle_ax_for_dirs(Dir1, Dir2):
     return (angle, ax)
 
 
-
-
-
-
-if __name__ == '__main__':
-    v = np.array([1.0, 0.0 ,0.0])
-    identity = rotation_matrix(v, 0.0)
-    RM = identity.copy()
-
-    ax = np.array([0.0, 1.0 ,1.0])
-    deg = 0.01 * np.pi*2
-    matrix0  = rotation_matrix(ax, deg)
-
-    for i in range(19):
-        RM = np.dot(matrix0, RM)
-        if i%4 == 0:
-            x,a = axis_angle(RM)
-            RM = rotation_matrix(unitize(x)*(random.random()+1.0), a)
-        rotated_v = np.dot(RM, v)
-
-        #print "original v:", v
-        print "original v leng:", get_len(v)
-        #print "rotated_v:", rotated_v
-        print "rotated_v leng:", get_len( rotated_v)
 
 
 

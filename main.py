@@ -4,37 +4,31 @@ import numpy as np
 from PyQt4 import QtCore, QtGui, QtOpenGL
 from sip import setdestroyonexit
 setdestroyonexit(False)
-import sys
 from OpenGL.GLU import *
 # IMPORT OBJECT LOADER
-import time, math
+import time, math, sys
 import constants as C
 from machineSim import Machine
+from machineSimPar import MachineP
 from objloader import *
+from multiprocessing import Manager, Queue
 
-class GLWidget(QtOpenGL.QGLWidget):
+
+class SimWidget(QtOpenGL.QGLWidget):
     xRotationChanged = QtCore.pyqtSignal(int)
     yRotationChanged = QtCore.pyqtSignal(int)
     zRotationChanged = QtCore.pyqtSignal(int)
 
-    def __init__(self, parent=None, params=None):
-        super(GLWidget, self).__init__(parent)
-        self.params = params
+    def __init__(self, parameters=None):
+        super(SimWidget, self).__init__()
+        self.params = parameters
+        if not self.params:
+            self.params = C.default_parameters
         self.z = np.array([0.0, 0.0, 1.0])
         self.W_DOWN = self.A_DOWN = self.S_DOWN = self.D_DOWN = self.SPACE_DOWN = False
         self.UP_DOWN = self.DOWN_DOWN = self.RIGHT_DOWN = self.LEFT_DOWN = self.CTRL_DOWN = False
-        if self.params:
-            self.mode = self.params["mode"]
-        else:
-            self.mode = "single"
-
-
-        self.machine = Machine()
-        self.machine.physics_tick(0.01)
-
         self.MOVE_OBJECT = False
         self.MOVE_FLOOR = False
-
         self.d90 = np.pi/2.0
         self.d360 = np.pi * 2.0
         self.camDirection = np.array([self.d90, 0.0])
@@ -44,6 +38,16 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.camVectorZ = np.array([0.0, 0.0, 0.0])
         self.lastPos = None
         self.obtainCamVectors()
+
+        self.mode = self.params["mode"]
+        self.min_dt = self.params["min_dt"]
+
+        self.command_que = None
+        self.manager = None
+        self.status_duct = None
+        self.machine = None
+
+        self.initializeMachine()
 
         self.goal_fps = 60.0
         self.goal_steptime = 1.0 / 120.0
@@ -57,12 +61,23 @@ class GLWidget(QtOpenGL.QGLWidget):
         timer.timeout.connect(self.advance)
         timer.start(20)
 
+    def initializeMachine(self):
+        if self.mode == "single":
+            self.machine = Machine()
+
+        elif self.mode == "parallel":
+            self.command_que = Queue(1000)
+            self.manager = Manager()
+            self.status_duct = self.manager.dict()
+            self.machine = MachineP(command_queue=self.command_que ,result_duct=self.status_duct,parameters=self.params)
+
+
     def updateFPStime(self):
         newtime = time.time()
         frametime = (newtime-self.TTime)/self.framecount
+        self.TTime = newtime
         self.avg_frametime = self.avg_frametime*0.5 + frametime*0.5
         self.avg_fps = self.avg_fps*0.5 + 0.5/frametime
-        self.TTime = time.time()
         self.framecount = 0
 
     def obtainCamVectors(self):
@@ -104,9 +119,8 @@ class GLWidget(QtOpenGL.QGLWidget):
         angle = angle % self.d360
         return angle
 
-
     def initializeGL(self):
-        print "InitGL"
+        print "InitGL...",
         lightPos = (5.0, 5.0, 10.0, 1.0)
 
         glLightfv(GL_LIGHT0, GL_POSITION, lightPos)
@@ -132,7 +146,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         glEnable(GL_NORMALIZE)
         glClearColor(0.0, 0.0, 0.0, 1.0)
         glLoadIdentity()
-
+        print " ...done."
 
     def paintGL(self):
         self.framecount += 1
@@ -146,12 +160,12 @@ class GLWidget(QtOpenGL.QGLWidget):
         glTranslate(-self.camPosition[0], -self.camPosition[1], -self.camPosition[2])
 
         tile_r = 10.39232
-        draw_info = self.machine.get_draw_info()
+        draw_info = self.get_draw_info()
         downrange_x = draw_info["hull_pos"][0]*self.MOVE_FLOOR
         downrange_y = draw_info["hull_pos"][1]*self.MOVE_FLOOR
         glPushMatrix()
         glTranslate(0.0, 0.0, -0.1)
-        self.drawFloor(10, tile_r, downrange_x, downrange_y) #Floor of hexagonals
+        self.drawFloor(tile=self.hextile_obj, R=10, tile_r=tile_r, pos_x=downrange_x, pos_y=downrange_y) #Floor of hexagonals
         glPopMatrix()
 
         glPushMatrix()
@@ -177,7 +191,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         glLoadIdentity()
         glTranslated(0.0, 0.0, -30.0)
 
-
     def keyPressEvent(self, event):
         K = event.key()
         if K == 16777235: #UP
@@ -202,7 +215,6 @@ class GLWidget(QtOpenGL.QGLWidget):
             self.CTRL_DOWN = True
         #print event.key()
 
-
     def keyReleaseEvent(self, event):
         K = event.key()
         if K == 16777235: #UP
@@ -226,10 +238,8 @@ class GLWidget(QtOpenGL.QGLWidget):
         if K == 16777249:
             self.CTRL_DOWN = False
 
-
     def mousePressEvent(self, event):
         self.lastPos = event.pos()
-
 
     def mouseMoveEvent(self, event):
         dx = event.x() - self.lastPos.x()
@@ -242,11 +252,9 @@ class GLWidget(QtOpenGL.QGLWidget):
             self.changeYPosition(0.06 * dy)
         self.lastPos = event.pos()
 
-
     def wheelEvent(self,event):
         tick = event.delta()/120
         self.setZoom(tick)
-
 
     def keyPressHandle(self):
         if self.LEFT_DOWN:
@@ -280,6 +288,18 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.machine.physics_tick(self.avg_frametime)
         self.updateGL()
 
+    def advance_machines(self):
+        if self.mode == "single":
+            self.machine.physics_tick(self.avg_frametime)
+
+
+    def get_draw_info(self):
+        if self.mode == "single":
+            return self.machine.get_draw_info()
+        elif self.mode == "parallel":
+            return self.status_duct["draw_info"]
+        else:
+            return False
 
     def drawMachine(self, draw_info, hull, mainmotor, sidemotor):
         pos, ax_angle = draw_info["hull_pos"], draw_info["hull_ax_angle"]
@@ -338,7 +358,7 @@ class GLWidget(QtOpenGL.QGLWidget):
         glPopMatrix()
 
 
-    def drawFloor(self, R, tile_r, pos_x, pos_y):
+    def drawFloor(self, tile, R, tile_r, pos_x, pos_y):
         tile_sep = tile_r * 1.1
         c30 = math.cos(0.5235987755)
         s30 = math.sin(0.5235987755)
@@ -362,16 +382,17 @@ class GLWidget(QtOpenGL.QGLWidget):
                 if math.sqrt(x*x+y*y) < (R * tile_r):
                     glPushMatrix()
                     glTranslate(x, y, 0)
-                    glCallList(self.hextile_obj.gl_list)
+                    glCallList(tile.gl_list)
                     glPopMatrix()
-
         glPopMatrix()
 
 
 
 if __name__ == '__main__':
+    params = {"mode":"single",
+              "min_dt":0.00025}
     app = QtGui.QApplication(sys.argv)
-    mainWin = GLWidget()
+    mainWin = SimWidget(params=params)
     mainWin.show()
     sys.exit(app.exec_())
 
