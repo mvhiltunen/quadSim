@@ -1,25 +1,27 @@
-import time
-from multiprocessing import Process, Manager, Value
+import random
+import numpy as np
+import constants as C
 
 
-def foo(data, name=''):
-    print type(data), data.value, name, "P"
-    data.value += 1
+def test1():
+    '''
+    rotated_vector = np.dot(ROT_MATRIX, vector)
+    retains vecor length always
+    '''
+    print "start"
+    for j in range(100):
+        axis = np.array([random.random() - 0.5, random.random()- 0.5, random.random() - 0.5])
+        deg = random.random()*12.19
+        RM = C.rotation_matrix(axis, deg)
+        for i in range(100):
+            vec = np.array([random.random() - 0.5, random.random()- 0.5, random.random() - 0.5]) * (random.random()+2.4)
+            r_vec = np.dot(RM, vec)
+            delta_len = abs(C.get_len(vec) - C.get_len(r_vec))
+            if delta_len > 0.00000001:
+                print "error"
+                print delta_len
+                break
 
-if __name__ == "__main__":
-    manager = Manager()
-    x = manager.Value('i', 0)
-    y = Value('i', 0)
+    print "success"
 
-    for i in range(5):
-        Process(target=foo, args=(x, 'x')).start()
-        Process(target=foo, args=(y, 'y')).start()
-
-    print 'Before waiting: '
-    print 'x = {0}'.format(x.value)
-    print 'y = {0}'.format(y.value)
-
-    time.sleep(1.0)
-    print 'After waiting: '
-    print 'x = {0}'.format(x.value)
-    print 'y = {0}'.format(y.value)
+test1()

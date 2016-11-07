@@ -32,7 +32,7 @@ class Machine:
 
         self.E1_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
         self.E2_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
-        self.E3_dir = C.unitize(np.array([0.1, 0.0, 1.0]))
+        self.E3_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
         self.E4_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
 
         adjust = 1.0
@@ -185,21 +185,21 @@ class Machine:
     def get_engine_pos_and_ax_angle(self, engine_i):
         if engine_i == 1:
             pos = self.E1_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E1_dir)
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.E1_dir)
             angle = angle*57.30659025
         elif engine_i == 2:
             pos = self.E2_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E2_dir)
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.E2_dir)
             angle = angle*57.30659025
         elif engine_i == 3:
             pos = self.E3_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E3_dir)
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.E3_dir)
             angle = angle*57.30659025
         elif engine_i == 4:
             pos = self.E4_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E4_dir)
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.E4_dir)
             angle = angle*57.30659025
-        return pos, (ax, angle)
+        return pos, (axis, angle)
 
 
     def get_full_state(self):

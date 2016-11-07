@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf8 -*-
 
 import numpy as np
 from PyQt4 import QtCore, QtGui, QtOpenGL
@@ -12,7 +13,10 @@ from machineSim import Machine
 from machineSimPar import MachineP
 from objloader import *
 from multiprocessing import Manager, Queue
-
+import multiprocessing
+import drawFunctions
+from commandPromptWindow import CommandLine
+from stylesheets import getStylesheet
 
 class SimWidget(QtOpenGL.QGLWidget):
     xRotationChanged = QtCore.pyqtSignal(int)
@@ -27,7 +31,7 @@ class SimWidget(QtOpenGL.QGLWidget):
         self.z = np.array([0.0, 0.0, 1.0])
         self.W_DOWN = self.A_DOWN = self.S_DOWN = self.D_DOWN = self.SPACE_DOWN = False
         self.UP_DOWN = self.DOWN_DOWN = self.RIGHT_DOWN = self.LEFT_DOWN = self.CTRL_DOWN = False
-        self.MOVE_OBJECT = False
+        self.MOVE_OBJECT = True
         self.MOVE_FLOOR = False
         self.d90 = np.pi/2.0
         self.d360 = np.pi * 2.0
@@ -46,6 +50,8 @@ class SimWidget(QtOpenGL.QGLWidget):
         self.manager = None
         self.status_duct = None
         self.machine = None
+        self.paused = False
+        self.commandline = None
 
         self.initializeMachine()
 
@@ -57,9 +63,9 @@ class SimWidget(QtOpenGL.QGLWidget):
         self.avg_fps = 10.0
         self.TTime = time.time()
 
-        timer = QtCore.QTimer(self)
-        timer.timeout.connect(self.advance)
-        timer.start(20)
+        self.frame_timer = QtCore.QTimer(self)
+        self.frame_timer.timeout.connect(self.advance)
+        self.frame_timer.start(18)
 
     def initializeMachine(self):
         if self.mode == "single":
@@ -69,16 +75,10 @@ class SimWidget(QtOpenGL.QGLWidget):
             self.command_que = Queue(1000)
             self.manager = Manager()
             self.status_duct = self.manager.dict()
-            self.machine = MachineP(command_queue=self.command_que ,result_duct=self.status_duct,parameters=self.params)
-
-
-    def updateFPStime(self):
-        newtime = time.time()
-        frametime = (newtime-self.TTime)/self.framecount
-        self.TTime = newtime
-        self.avg_frametime = self.avg_frametime*0.5 + frametime*0.5
-        self.avg_fps = self.avg_fps*0.5 + 0.5/frametime
-        self.framecount = 0
+            self.machine = MachineP(command_queue=self.command_que, status_duct=self.status_duct, parameters=self.params)
+            self.status_duct["draw_info"] = self.machine.get_draw_info()
+            self.machine.start()
+            time.sleep(0.1)
 
     def obtainCamVectors(self):
         self.camVectorX[0] = np.sin(self.camDirection[0])
@@ -112,9 +112,6 @@ class SimWidget(QtOpenGL.QGLWidget):
         if change > 0:
             self.camPosition += self.camVectorZ * 3
 
-    def toRadians(self, degree):
-        return degree*0.017453292519943*(1.0/16)
-
     def normalizeAngle(self, angle):
         angle = angle % self.d360
         return angle
@@ -135,7 +132,7 @@ class SimWidget(QtOpenGL.QGLWidget):
         self.hull_obj = OBJ("MainHull.obj", swapyz=True)
 
         glLightfv(GL_LIGHT0, GL_POSITION,  (-40, 200, 100, 0.0))
-        #glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
+        glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
         #glLightfv(GL_LIGHT0, GL_DIFFUSE, (0.5, 0.5, 0.5, 1.0))
         glEnable(GL_LIGHT0)
         glEnable(GL_LIGHTING)
@@ -159,33 +156,33 @@ class SimWidget(QtOpenGL.QGLWidget):
         glRotate((self.camDirection[0]-self.d90) * -57.2957795, 0.0, 0.0, 1.0)
         glTranslate(-self.camPosition[0], -self.camPosition[1], -self.camPosition[2])
 
-        tile_r = 10.39232
         draw_info = self.get_draw_info()
+
+        tile_r = 10.39232
         downrange_x = draw_info["hull_pos"][0]*self.MOVE_FLOOR
         downrange_y = draw_info["hull_pos"][1]*self.MOVE_FLOOR
         glPushMatrix()
         glTranslate(0.0, 0.0, -0.1)
-        self.drawFloor(tile=self.hextile_obj, R=10, tile_r=tile_r, pos_x=downrange_x, pos_y=downrange_y) #Floor of hexagonals
+        drawFunctions.drawFloor(tile=self.hextile_obj, R=9, tile_r=tile_r, pos_x=downrange_x, pos_y=downrange_y)
         glPopMatrix()
 
         glPushMatrix()
         glTranslate(0.0, 0.0, 0.0)
-        self.drawMachine(draw_info, self.hull_obj, self.mainmotor_obj, self.sidemotor_obj)
+        drawFunctions.drawMachine(HORIZONTAL_MOVE=self.MOVE_OBJECT, draw_info=draw_info, hull=self.hull_obj, mainmotor=self.mainmotor_obj, sidemotor=self.sidemotor_obj)
         glPopMatrix()
         glPopMatrix()
 
 
     def resizeGL(self, width, height):
-        side = min(width, height)
-        print(width, height)
-        if side < 0:
+        #viewport = C.getResolution(0.7)
+        viewport = (int(self.width()), int(self.height()))
+        width, height = viewport
+        if min(width, height) < 0:
             return
-        viewport = (1000,800)
         #glViewport((width - side) // 2, (height - side) // 2, side, side)
-        glViewport(0,0, viewport[0], viewport[1])
+        glViewport(0,0, width, height)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
-        width, height = viewport
         gluPerspective(80.0, width/float(height), 1, 1000.0)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -195,24 +192,28 @@ class SimWidget(QtOpenGL.QGLWidget):
         K = event.key()
         if K == 16777235: #UP
             self.UP_DOWN = True
-        if K == 16777237: #DOWN
+        elif K == 16777237: #DOWN
             self.DOWN_DOWN = True
-        if K == 16777234: #LEFT
+        elif K == 16777234: #LEFT
             self.LEFT_DOWN = True
-        if K == 16777236: #RIGHT
+        elif K == 16777236: #RIGHT
             self.RIGHT_DOWN = True
-        if K == 87: #W
+        elif K == 87: #W
             self.W_DOWN = True
-        if K == 65:#A
+        elif K == 65:#A
             self.A_DOWN = True
-        if K == 83:#S
+        elif K == 83:#S
             self.S_DOWN = True
-        if K == 68:#D
+        elif K == 68:#D
             self.D_DOWN = True
-        if K == 32:
+        elif K == 32:#Space
             self.SPACE_DOWN = True
-        if K == 16777249:
+        elif K == 16777249:#Ctrl
             self.CTRL_DOWN = True
+        elif K == 80:#P
+            self.pause()
+        elif K == 67:#C
+            self.openCommandLine()
         #print event.key()
 
     def keyReleaseEvent(self, event):
@@ -282,16 +283,26 @@ class SimWidget(QtOpenGL.QGLWidget):
 
 
     def advance(self):
-        if self.framecount > 20:
-            self.updateFPStime()
         self.keyPressHandle()
-        self.machine.physics_tick(self.avg_frametime)
+        self.advance_machines()
         self.updateGL()
+
+    def updateFPStime(self):
+        newtime = time.time()
+        frametime = (newtime-self.TTime)/self.framecount
+        self.TTime = newtime
+        self.avg_frametime = self.avg_frametime*0.5 + frametime*0.5
+        self.avg_fps = self.avg_fps*0.5 + 0.5/frametime
+        self.framecount = 0
+
 
     def advance_machines(self):
         if self.mode == "single":
             self.machine.physics_tick(self.avg_frametime)
-
+            if self.framecount > 20:
+                self.updateFPStime()
+        elif self.mode == "parallel":
+            pass
 
     def get_draw_info(self):
         if self.mode == "single":
@@ -301,98 +312,47 @@ class SimWidget(QtOpenGL.QGLWidget):
         else:
             return False
 
-    def drawMachine(self, draw_info, hull, mainmotor, sidemotor):
-        pos, ax_angle = draw_info["hull_pos"], draw_info["hull_ax_angle"]
-        ax0, angle0 = ax_angle
+    def pause(self):
+        self.command_que.put(("pause", []))
+        self.paused = not self.paused
 
-        glPushMatrix()
-        glTranslate(pos[0]*self.MOVE_OBJECT, pos[1]*self.MOVE_OBJECT, pos[2])
+    def closeEvent(self, *args, **kwargs):
+        self.frame_timer.stop()
+        if self.mode == "parallel":
+            self.command_que.put( ("stop",[]) )
+            time.sleep(0.05)
+        for pr in multiprocessing.active_children():
+            pr.terminate()
+        if self.commandline:
+            self.commandline.close()
+        super(SimWidget, self).closeEvent(*args, **kwargs)
 
-        glPushMatrix()
-        glRotate(angle0, ax0[0], ax0[1], ax0[2])
-        glCallList(hull.gl_list)
-        #glCallList(stick_obj.gl_list)
-        glPopMatrix()
+    def openCommandLine(self):
+        self.setEnabled(False)
+        if not self.paused:
+            self.pause()
+        self.commandline = CommandLine(self)
+        self.commandline.show()
 
-        glPushMatrix()
-        e_pos, e_ax_angle = draw_info["E1_pos"], draw_info["E1_ax_angle"]
-        e_axis = e_ax_angle[0]
-        e_angle = e_ax_angle[1]
-        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
-        glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
-        glCallList(mainmotor.gl_list)
-        #glCallList(stick_obj.gl_list)
-        glPopMatrix()
+    def command(self, cmd):
+        print "received command:", cmd
 
-        glPushMatrix()
-        e_pos, e_ax_angle = draw_info["E2_pos"], draw_info["E2_ax_angle"]
-        e_axis = e_ax_angle[0]
-        e_angle = e_ax_angle[1]
-        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
-        glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
-        glCallList(mainmotor.gl_list)
-        #glCallList(stick_obj.gl_list)
-        glPopMatrix()
-
-        glPushMatrix()
-        e_pos, e_ax_angle = draw_info["E3_pos"], draw_info["E3_ax_angle"]
-        e_axis = e_ax_angle[0]
-        e_angle = e_ax_angle[1]
-        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
-        glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
-        glCallList(sidemotor.gl_list)
-        #glCallList(stick_obj.gl_list)
-        glPopMatrix()
-
-        glPushMatrix()
-        #e_pos, e_ax_angle = machine.get_engine_pos_and_ax_angle(4)
-        e_pos, e_ax_angle = draw_info["E4_pos"], draw_info["E4_ax_angle"]
-        e_axis = e_ax_angle[0]
-        e_angle = e_ax_angle[1]
-        glTranslate(e_pos[0]*2, e_pos[1]*2, e_pos[2]*2)
-        glRotate(e_angle, e_axis[0], e_axis[1], e_axis[2])
-        glCallList(sidemotor.gl_list)
-        #glCallList(stick_obj.gl_list)
-        glPopMatrix()
-
-        glPopMatrix()
-
-
-    def drawFloor(self, tile, R, tile_r, pos_x, pos_y):
-        tile_sep = tile_r * 1.1
-        c30 = math.cos(0.5235987755)
-        s30 = math.sin(0.5235987755)
-        glPushMatrix()
-        offset_x = pos_x % (2*tile_sep*c30)
-        offset_y = pos_y % (2*tile_sep*s30)
-        glTranslate(offset_x, offset_y, 0)
-        floor_r_i = int(R*1.6)
-        floor_r_j = int(R*1.6)
-        for i in range(-floor_r_i, floor_r_i):
-            for j in range(-floor_r_j, floor_r_j):
-                i2 = int(i/2.0)
-                ic = i-i2
-                j2 = int(j/2.0)
-                jc = j-j2
-                os = abs(i%2)
-
-                x = (ic*tile_sep*c30)+(i2*tile_sep*c30)
-                y = (jc*tile_sep)+os*tile_sep*s30
-
-                if math.sqrt(x*x+y*y) < (R * tile_r):
-                    glPushMatrix()
-                    glTranslate(x, y, 0)
-                    glCallList(tile.gl_list)
-                    glPopMatrix()
-        glPopMatrix()
-
+    def release(self):
+        self.setEnabled(True)
+        self.commandline = None
+        if self.paused:
+            self.pause()
 
 
 if __name__ == '__main__':
-    params = {"mode":"single",
-              "min_dt":0.00025}
+    params = {"mode": "parallel",
+              "min_dt": 0.00025,
+              "goal_fps": 60,
+              "frametime_eval_time": 0.1,
+              "update_time": 0.01,
+              "dt_relaxation_coeff": 0.9}
     app = QtGui.QApplication(sys.argv)
-    mainWin = SimWidget(params=params)
+    mainWin = SimWidget(parameters=params)
     mainWin.show()
     sys.exit(app.exec_())
 

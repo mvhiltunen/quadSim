@@ -5,52 +5,60 @@ from multiprocessing import Process, Queue, Value, Array, RawValue, Manager
 import multiprocessing
 
 class MachineP(Process):
-    def __init__(self, command_queue=None, result_duct=None, parameters=None):
+    def __init__(self, command_queue=None, status_duct=None, parameters=None):
         super(MachineP, self).__init__()
         self.command_queue = command_queue
-        self.result_duct = result_duct
+        self.result_duct = status_duct
         self.parameters = parameters
-        if type(result_duct) == multiprocessing.managers.DictProxy:
+        if type(status_duct) == multiprocessing.managers.DictProxy:
             self.transmit_mode = "dict"
-        elif type(result_duct) == multiprocessing.queues.Queue:
+        elif type(status_duct) == multiprocessing.queues.Queue:
             self.transmit_mode = "queue"
 
-        self.V_log = [np.array([0.0,0.0,0.0], np.float64)]
-        self.A_apx = np.array([0.0, 0.0, 0.0], np.float64)
+        _accuracy = np.float64
+        self.V_log = [np.array([0.0,0.0,0.0], _accuracy)]
+        self.A_apx = np.array([0.0, 0.0, 0.0], _accuracy)
 
-        self.z = np.array([0.0, 0.0, 1.0], np.float64)
-        self.x = np.array([1.0, 0.0, 0.0], np.float64)
-        self.y = np.array([0.0, 1.0, 0.0], np.float64)
+        self.z = np.array([0.0, 0.0, 1.0], _accuracy)
+        self.x = np.array([1.0, 0.0, 0.0], _accuracy)
+        self.y = np.array([0.0, 1.0, 0.0], _accuracy)
         self.g = -self.z*C.g
 
-        self.E1_pos0 = np.array([0.0,(0.8+C.R1),0.0])
-        self.E2_pos0 = np.array([0.0,-(0.8+C.R1),0.0])
-        self.E3_pos0 = np.array([(0.8+C.R2),0.0,0.0])
-        self.E4_pos0 = np.array([-(0.8+C.R2),0.0,0.0])
+        self.inner_E1_pos = np.array([0.0, (0.8 + C.R1), 0.0], _accuracy)
+        self.inner_E2_pos = np.array([0.0, -(0.8 + C.R1), 0.0], _accuracy)
+        self.inner_E3_pos = np.array([(0.8 + C.R2), 0.0, 0.0], _accuracy)
+        self.inner_E4_pos = np.array([-(0.8 + C.R2), 0.0, 0.0], _accuracy)
 
-        self.E1_pos = self.E1_pos0.copy()
-        self.E2_pos = self.E2_pos0.copy()
-        self.E3_pos = self.E3_pos0.copy()
-        self.E4_pos = self.E4_pos0.copy()
+        self.external_E1_pos = self.inner_E1_pos.copy()
+        self.external_E2_pos = self.inner_E2_pos.copy()
+        self.external_E3_pos = self.inner_E3_pos.copy()
+        self.external_E4_pos = self.inner_E4_pos.copy()
 
-        self.P = np.array([0.0,0.0,1.0], np.float64)
-        self.V = np.array([0.0,0.0,0.0], np.float64)
-        self.W = np.array([0.0,0.0,0.0], np.float64)
+        self.P = np.array([0.0,0.0,1.0], _accuracy)
+        self.V = np.array([0.0,0.0,0.0], _accuracy)
+        self.W = np.array([0.0,0.0,0.0], _accuracy)
 
         self.ROT_M = C.rotation_matrix(self.z, 0.0)
 
-        self.E1_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
-        self.E2_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
-        self.E3_dir = C.unitize(np.array([0.1, 0.0, 1.0]))
-        self.E4_dir = C.unitize(np.array([0.0, 0.0, 1.0]))
+        self.inner_E1_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.inner_E2_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.inner_E3_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.inner_E4_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
 
-        adjust = 1.0
+        self.external_E1_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.external_E2_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.external_E3_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.external_E4_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
+        self.update_external_engine_directions()
+
+        adjust = 1.00
         self.E1_pwr = 0.153 * adjust
         self.E2_pwr = 0.153 * adjust
         self.E3_pwr = 0.1452 * adjust
         self.E4_pwr = 0.1452 * adjust
 
         self.legal_commands = {"stop":True,
+                               "pause":True,
                                "set_up":True,
                                "steer":True,
                                "give_full_state":True}
@@ -60,8 +68,10 @@ class MachineP(Process):
         self.next_frametime_eval = 0
         self.next_update = 0
         self.on = False
+        self.paused = False
         self.simulation_time = time.time()
         self.dt = 0.01
+        self.half_dt = self.dt / 2
         self.min_dt = 0.003
         self.frametime_eval_time = 0.1
         self.update_time = 0.01
@@ -69,7 +79,6 @@ class MachineP(Process):
             self.min_dt = self.parameters["min_dt"]
             self.frametime_eval_time = self.parameters["frametime_eval_time"]
             self.update_time = self.parameters["update_time"]
-            print "HERE"
         self.frametime_eval_interval = 10
         self.update_interval = 2
         self.command_resove_interval = 4
@@ -77,49 +86,37 @@ class MachineP(Process):
         self.testing = True
 
 
+        self.waits = 0
+        self.nowaits = 0
+
 
     def physics_tick(self, t):
         self.simulation_time += t
         self.ticks += 1
 
-        self.P += t*self.V
-        if self.P[2] < 0.0:
-            self.P[2] = 0.0
-            self.V = self.V*0.9
-
+        #Calculate Forces-------------------------
         T1 = C.get_thrust(1, self.E1_pwr)
         T2 = C.get_thrust(1, self.E2_pwr)
         T3 = C.get_thrust(2, self.E3_pwr)
         T4 = C.get_thrust(2, self.E4_pwr)
 
-        F1 = T1 * self.E1_dir
-        F2 = T2 * self.E2_dir
-        F3 = T3 * self.E3_dir
-        F4 = T4 * self.E4_dir
+        F1 = T1 * self.external_E1_dir
+        F2 = T2 * self.external_E2_dir
+        F3 = T3 * self.external_E3_dir
+        F4 = T4 * self.external_E4_dir
 
         I1 = F1 * t
         I2 = F2 * t
         I3 = F3 * t
         I4 = F4 * t
         I = I1+I2+I3+I4
+        #------------------------------------------
 
-        self.V += I/C.M
-        self.V += self.g * t
-        if self.P[2] <= 0.0:
-            self.V[2] = max(0.0, self.V[2])
-
-
-        self.ROT_M = np.dot(C.rotation_matrix(self.W, C.get_len(self.W)*t),   self.ROT_M)
-
-        self.E1_pos = np.dot(self.ROT_M, self.E1_pos0)
-        self.E2_pos = np.dot(self.ROT_M, self.E2_pos0)
-        self.E3_pos = np.dot(self.ROT_M, self.E3_pos0)
-        self.E4_pos = np.dot(self.ROT_M, self.E4_pos0)
-
-        TQ1 = C.get_torq(self.E1_pos, F1)
-        TQ2 = C.get_torq(self.E2_pos, F2)
-        TQ3 = C.get_torq(self.E3_pos, F3)
-        TQ4 = C.get_torq(self.E4_pos, F4)
+        #Calculate torques and rotation speed------
+        TQ1 = C.get_torq(self.external_E1_pos, F1)
+        TQ2 = C.get_torq(self.external_E2_pos, F2)
+        TQ3 = C.get_torq(self.external_E3_pos, F3)
+        TQ4 = C.get_torq(self.external_E4_pos, F4)
         TQ = TQ1 + TQ2 + TQ3 + TQ4
         tq = C.get_len(TQ)
         if tq:
@@ -129,13 +126,32 @@ class MachineP(Process):
             delta_L = t * TQ
             delta_w = delta_L/J
             self.W += delta_w
+        #------------------------------------------
 
+        self.ROT_M = np.dot(C.rotation_matrix(self.W, C.get_len(self.W) * t), self.ROT_M)
         self.reset_rotation_matrix_length()
+
+        self.update_external_engine_positions()
+
+        self.update_external_engine_directions()
+
+        self.V += I / C.M
+        self.V += self.g * t
+        if self.P[2] <= 0.0:
+            self.V[2] = max(0.0, self.V[2])
+
+        self.P += t * self.V
+        if self.P[2] < 0.0:
+            self.P[2] = 0.0
+            self.V *= 0.9
 
         tests = 1
         if tests:
-            self.E1_dir = C.unitize(np.array([-0.27 * np.cos(self.ticks * 0.02 + 1.5), 0.0, 1.0]))
-            self.E2_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * 0.02 + 1.5), 0.0, 1.0]))
+            #if random.random() > 0.999:
+                #print "dir:",self.external_E1_dir
+                #print "V:", self.V
+            self.inner_E1_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
+            self.inner_E2_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
 
 
 
@@ -184,44 +200,47 @@ class MachineP(Process):
         x = min(x, 1.0)
         return x
 
+    def update_external_engine_positions(self):
+        self.external_E1_pos = np.dot(self.ROT_M, self.inner_E1_pos)
+        self.external_E2_pos = np.dot(self.ROT_M, self.inner_E2_pos)
+        self.external_E3_pos = np.dot(self.ROT_M, self.inner_E3_pos)
+        self.external_E4_pos = np.dot(self.ROT_M, self.inner_E4_pos)
 
-
-
-    def unitize_engine_directions(self):
-        self.E1_dir = C.unitize(self.E1_dir)
-        self.E2_dir = C.unitize(self.E2_dir)
-        self.E3_dir = C.unitize(self.E3_dir)
-        self.E4_dir = C.unitize(self.E4_dir)
+    def update_external_engine_directions(self):
+        self.external_E1_dir = np.dot(self.ROT_M, self.inner_E1_dir)
+        self.external_E2_dir = np.dot(self.ROT_M, self.inner_E2_dir)
+        self.external_E3_dir = np.dot(self.ROT_M, self.inner_E3_dir)
+        self.external_E4_dir = np.dot(self.ROT_M, self.inner_E4_dir)
 
     def reset_rotation_matrix_length(self):
-        axle0, angle0 = C.axis_angle(self.ROT_M)
-        self.ROT_M = C.rotation_matrix(C.unitize(axle0), angle0)
+        axis, angle = C.axis_angle(self.ROT_M)
+        self.ROT_M = C.rotation_matrix(axis, angle)
 
 
     def get_hull_pos_and_ax_angle(self):
         ax, angle = C.axis_angle(self.ROT_M)
-        angle = angle*57.30659025
+        angle *= 57.30659025
         return self.P, (ax, angle)
 
 
     def get_engine_pos_and_ax_angle(self, engine_i):
         if engine_i == 1:
-            pos = self.E1_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E1_dir)
+            pos = self.external_E1_pos
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.external_E1_dir)
             angle = angle*57.30659025
         elif engine_i == 2:
-            pos = self.E2_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E2_dir)
+            pos = self.external_E2_pos
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.external_E2_dir)
             angle = angle*57.30659025
         elif engine_i == 3:
-            pos = self.E3_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E3_dir)
+            pos = self.external_E3_pos
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.external_E3_dir)
             angle = angle*57.30659025
         elif engine_i == 4:
-            pos = self.E4_pos
-            angle, ax = C.get_angle_ax_for_dirs(self.z, self.E4_dir)
+            pos = self.external_E4_pos
+            axis, angle = C.get_ax_angle_for_dirs(self.z, self.external_E4_dir)
             angle = angle*57.30659025
-        return pos, (ax, angle)
+        return pos, (axis, angle)
 
 
     def send_full_state(self):
@@ -231,17 +250,17 @@ class MachineP(Process):
         d["W"] = self.W
         d["ROT_M"] = self.ROT_M
         d["A_apx"] = self.A_apx
-        d["E1_pos"] = self.E1_pos
-        d["E1_dir"] = self.E1_dir
+        d["E1_pos"] = self.external_E1_pos
+        d["E1_dir"] = self.inner_E1_dir
         d["E1_pwr"] = self.E1_pwr
-        d["E2_pos"] = self.E2_pos
-        d["E2_dir"] = self.E2_dir
+        d["E2_pos"] = self.external_E2_pos
+        d["E2_dir"] = self.inner_E2_dir
         d["E2_pwr"] = self.E2_pwr
-        d["E3_pos"] = self.E3_pos
-        d["E3_dir"] = self.E3_dir
+        d["E3_pos"] = self.external_E3_pos
+        d["E3_dir"] = self.inner_E3_dir
         d["E3_pwr"] = self.E3_pwr
-        d["E4_pos"] = self.E4_pos
-        d["E4_dir"] = self.E4_dir
+        d["E4_pos"] = self.external_E4_pos
+        d["E4_dir"] = self.inner_E4_dir
         d["E4_pwr"] = self.E4_pwr
         return d
 
@@ -266,6 +285,11 @@ class MachineP(Process):
     def stop(self):
         self.on = False
 
+    def pause(self):
+        self.paused = not self.paused
+        if not self.paused:
+            self.simulation_time = time.time()
+
     def resolve_commands(self):
         while not self.command_queue.empty():
             command = self.command_queue.get()
@@ -278,6 +302,7 @@ class MachineP(Process):
 
 
     def run(self):
+        C.highpriority()
         self.ticks = 0
         self.eval_tick = 0
         self.dt = 0.01
@@ -287,10 +312,14 @@ class MachineP(Process):
         self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
         self.simulation_time = time.time()
         self.on = True
+        self.half_dt = self.dt/2
         while self.on:
             offset = self.simulation_time - time.time()
             if offset > self.dt:
-                time.sleep(offset)
+                self.waits += 1
+                time.sleep(offset*0.9)
+            else:
+                self.nowaits += 1
             self.physics_tick(self.dt)
             if self.ticks >= self.next_command_resolve:
                 self.resolve_commands()
@@ -298,6 +327,9 @@ class MachineP(Process):
                 self.update_results()
             if self.ticks >= self.next_frametime_eval:
                 self.update_frametime()
+            while self.paused:
+                time.sleep(0.1)
+                self.resolve_commands()
 
         self.kill_report()
 
@@ -316,6 +348,7 @@ class MachineP(Process):
             gain_coeff = abs(gain / self.dt)
             gain_coeff = min(0.9, gain_coeff)           #PP
             self.dt *= (1.0 + gain_coeff)
+        self.half_dt = self.dt / 2
         #UPDATE INTERVAL VALUES ACCORDING TO NEW DT
         self.update_interval = int(self.update_time / self.dt)
         self.command_resove_interval = self.update_interval * 2
@@ -334,6 +367,8 @@ class MachineP(Process):
         k_report["avg_offset"] = avg_offset
         k_report["offset_list"] = self.offset_list
         k_report["dt"] = self.dt
+        k_report["waits"] = self.waits
+        k_report["nowaits"] = self.nowaits
         if self.transmit_mode == "dict":
             self.result_duct["kill_report"] = k_report
         elif self.transmit_mode == "queue":
@@ -352,10 +387,10 @@ if __name__ == '__main__':
     command_que = Queue(100)
     kill_cmd = ["stop", []]
 
-    machine = MachineP(command_queue=command_que, result_duct=status, parameters=machine_parameters)
+    machine = MachineP(command_queue=command_que, status_duct=status, parameters=machine_parameters)
     print "start parallelisation..."
     machine.start()
-    time.sleep(11)
+    time.sleep(21)
     command_que.put(kill_cmd)
     time.sleep(0.1)
     k_report = status["kill_report"]

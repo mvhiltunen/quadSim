@@ -248,7 +248,8 @@ def rotate():
     print V3
 
 rotate()
-
+testi()
+draw()
 
 
 

@@ -7,8 +7,6 @@ class Controller:
     def __init__(self):
         self.a = 0
 
-
-
     def control_tick(self, t):
         self.current_check = time.time()
         self.dt = self.current_check-self.previous_check

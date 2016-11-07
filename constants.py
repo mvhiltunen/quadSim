@@ -1,5 +1,8 @@
 import numpy as np
-import random, math
+import random, math, sys, os
+
+#some shit
+fullHD = np.array((1920, 1080), np.int32)
 
 #naturals
 g = 9.81
@@ -43,7 +46,7 @@ default_parameters = {"mode":"single",
                       "goal_fps":60,
                       "frametime_eval_time":0.1,
                       "update_time":0.01,
-                      "max_gain_coeff":0.9}
+                      "dt_relaxation_coeff":0.9}
 
 
 def unitize(v):
@@ -125,19 +128,44 @@ def axis_angle(matrix):
 
 
 
-def get_angle_ax_for_dirs(Dir1, Dir2):
+def get_ax_angle_for_dirs(Dir1, Dir2):
     angle = np.arccos(np.dot(Dir1, Dir2))
     angle = angle
-    ax = np.cross(Dir1, Dir2)
-    return (angle, ax)
+    axis = np.cross(Dir1, Dir2)
+    return axis, angle
 
 
 
 
+def highpriority():
+    """ Set the priority of the process to below-normal."""
+    try:
+        sys.getwindowsversion()
+    except:
+        isWindows = False
+    else:
+        isWindows = True
+
+    if isWindows:
+        # Based on:
+        #   "Recipe 496767: Set Process Priority In Windows" on ActiveState
+        #   http://code.activestate.com/recipes/496767/
+        import win32api,win32process,win32con
+
+        pid = win32api.GetCurrentProcessId()
+        handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, True, pid)
+        #win32process.SetPriorityClass(handle, win32process.REALTIME_PRIORITY_CLASS)
+        win32process.SetPriorityClass(handle, win32process.HIGH_PRIORITY_CLASS)
+    else:
+        import os
+        os.nice(1)
 
 
 
-
+def getResolution(coeff):
+    rez = fullHD.copy()
+    rez *= float(coeff)
+    return rez[0], rez[1]
 
 
 
