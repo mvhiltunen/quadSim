@@ -1,72 +1,68 @@
 import constants as C
 import random, time ,math
 import numpy as np
+from multiprocessing import Process, Queue, Manager
 
 
-class Controller:
-    def __init__(self):
-        self.a = 0
+class Controller(Process):
+    def __init__(self, machine, status_duct, control_queue):
+        super(Controller, self).__init__()
+        self.machine = machine
+        self.status_duct = status_duct
+        self.control_queue = control_queue
+        self.state = None
+        self.motor_pwr_names = {0:"E0P", 1:"E1P", 2:"E2P", 3:"E3P"}
+        self.motor_dir_names = {0:"E0D", 1:"E1D", 2:"E2D", 3:"E3D"}
+
+    def set_motor_pwr(self, motor, pwr):
+        self.control_queue.put( (self.motor_pwr_names[motor], pwr) )
+
+    def set_motor_direction(self, motor, direction):
+        self.control_queue.put( (self.motor_dir_names[motor], direction) )
+
+
+    def giveState(self, state):
+        pass
+
+    def getState(self):
+        pass
 
     def control_tick(self, t):
-        self.current_check = time.time()
-        self.dt = self.current_check-self.previous_check
-        DIR = np.dot(self.ROT_M, self.z)
-        self.A_apx = self.A_apx*0.5 + (self.V-self.V_log[-1])*0.5
-        self.V_log.append(self.V.copy())
-
-        if False:
-            if DIR[0] < 0:
-                self.E4_pwr = self.rise(self.E4_pwr, DIR[0]*0.01)
-                self.E3_pwr = self.lower(self.E3_pwr, DIR[0]*0.01)
-            if DIR[0] > 0:
-                self.E3_pwr = self.rise(self.E3_pwr, DIR[0]*0.01)
-                self.E4_pwr = self.lower(self.E4_pwr, DIR[0]*0.01)
-
-            if DIR[1] < 0:
-                self.E2_pwr = self.rise(self.E2_pwr, DIR[1]*0.01)
-                self.E1_pwr = self.lower(self.E1_pwr, DIR[1]*0.01)
-            if DIR[1] > 0:
-                self.E1_pwr = self.rise(self.E1_pwr, DIR[1]*0.01)
-                self.E2_pwr = self.lower(self.E2_pwr, DIR[1]*0.01)
-
-        Destination = 20.0
-        Delta_T = 6.0
-        Vmax = 8.0
-        GapTime = 3.0
-        CutDistance = Vmax*GapTime
-        Delta_H = Destination - self.P[2]
-        Pos_in_DT = self.extrapolate_position(Delta_T)
-        if self.ticks%50 == 0:
-            print "Current V", self.V
-            print "Projecterd V", self.projected_speed_in(1.0)
-            print "Current P", self.P
-            print "Throttle:", self.E1_pwr
-
-        pwr_coeff = 0
-        tick = 0.5
+        pass
 
 
-        proj1 = self.projected_speed_in(6.0)
-        check = 0
-        if proj1[2] > Vmax:
-            pwr_coeff -= tick
-            check = 1
-        if proj1[2] < -Vmax:
-            pwr_coeff += tick
-            check = 1
+    def projected_speed_in(self, V, A, T):
+        return V + A * T
 
-        if not check:
-            if self.extrapolate_position(5.0)[2] > Destination:
-                pwr_coeff -= tick
+    def extrapolate_position(self,P, V, A, T):
+        extrap = P + V*T + 0.5*A*T*T
+        return extrap
 
-            if self.extrapolate_position(5.0)[2] < Destination:
-                pwr_coeff += tick
-
-
-
-        pwr_coeff = pwr_coeff*self.dt
-        self.adjust_total_engine_power(pwr_coeff)
-        self.previous_check = self.current_check
+    def approximate_time_to(self, P, V, A, pos, dimension):
+        delta = pos - P[dimension]
+        v = V[dimension]
+        a = A[dimension]
+        s1 = (-v + np.sqrt(v**2 + 2.0*a*delta))/(a)
+        s2 = (-v - np.sqrt(v**2 + 2.0*a*delta))/(a)
+        if s1 > 0:
+            return s1
+        elif s2 > 0:
+            return s2
+        else:
+            return False
 
 
+    def rise(self, x, amount):
+        if x <= 0.0:
+            x = 0.01
+        x *= (1.00 + amount)
+        x = min(x, 1.0)
+        return x
 
+
+    def lower(self, x, amount):
+        if x <= 0.0:
+            return 0.0
+        x /= (1.00 + amount)
+        x = min(x, 1.0)
+        return x

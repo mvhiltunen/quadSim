@@ -28,12 +28,12 @@ E4_center = 80
 
 
 face_area = 8.5170*scale_factor
-
+drag_coeff = 0.7
+drag_constant = -0.75*drag_coeff*face_area
 
 max_power = 12000.0
 efficiencies = {1:0.196, 2:0.137}
 payload = 0.0
-form_factor = 0.8
 
 grav = g*np.array([0.0,0.0,-1.0])*M
 
@@ -63,14 +63,24 @@ def get_area(v, attitude):
     a = attitude/get_len(attitude)
     return face_area * np.dot(e, a)
 
+def get_area_M(v, ROT_M):
+    e = unitize(v)
+    z = np.dot(ROT_M, ez)
+    return face_area * np.dot(e, z)
+
+def get_rel_facing_M(v, ROT_M):
+    e = unitize(v)
+    z = np.dot(ROT_M, ez)
+    return max(np.dot(e, z), 0.04)
+
 def get_len(a):
     return math.sqrt(np.dot(a, a))
 
 def get_speed(v):
     return np.sqrt((v*v).sum())
 
-def get_drag(v, attitude):
-    return v*v*d_air*form_factor*0.5*get_area(v, attitude)
+def get_drag(v, ROT_M):
+    return v*v*drag_constant*get_rel_facing_M(v, ROT_M)
 
 def get_torq(p, f):
     return np.cross(p,f)

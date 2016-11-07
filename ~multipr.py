@@ -3,6 +3,7 @@ from multiprocessing import Process, Manager, Value, Array, Queue, Pipe
 import numpy as np
 import multiprocessing
 
+
 class pProcess(Process):
     def __init__(self, transmitter, mode):
         super(pProcess, self).__init__()

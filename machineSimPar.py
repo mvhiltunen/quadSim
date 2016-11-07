@@ -1,8 +1,9 @@
 import numpy as np
 import random, time
 import constants as C
-from multiprocessing import Process, Queue, Value, Array, RawValue, Manager
+from multiprocessing import Process, Queue, Manager
 import multiprocessing
+
 
 class MachineP(Process):
     def __init__(self, command_queue=None, status_duct=None, parameters=None):
@@ -51,17 +52,14 @@ class MachineP(Process):
         self.external_E4_dir = C.unitize(np.array([0.0, 0.0, 1.0], _accuracy))
         self.update_external_engine_directions()
 
-        adjust = 1.00
+        adjust = 1.0 #1.3 >> 9.2    1.615>>13.0
         self.E1_pwr = 0.153 * adjust
         self.E2_pwr = 0.153 * adjust
         self.E3_pwr = 0.1452 * adjust
         self.E4_pwr = 0.1452 * adjust
 
-        self.legal_commands = {"stop":True,
-                               "pause":True,
-                               "set_up":True,
-                               "steer":True,
-                               "give_full_state":True}
+        self.legal_commands = {"stop":True, "pause":True,
+                               "set_up":True, "steer":True, "give_full_state":True}
         self.ticks = 0
         self.eval_tick = 0
         self.next_command_resolve = 0
@@ -70,6 +68,7 @@ class MachineP(Process):
         self.on = False
         self.paused = False
         self.simulation_time = time.time()
+        self.time_dilation = 1.0
         self.dt = 0.01
         self.half_dt = self.dt / 2
         self.min_dt = 0.003
@@ -84,14 +83,12 @@ class MachineP(Process):
         self.command_resove_interval = 4
         self.offset_list = np.zeros(100, np.float32)
         self.testing = True
-
-
         self.waits = 0
         self.nowaits = 0
 
 
     def physics_tick(self, t):
-        self.simulation_time += t
+        self.simulation_time += t/self.time_dilation
         self.ticks += 1
 
         #Calculate Forces-------------------------
@@ -104,12 +101,14 @@ class MachineP(Process):
         F2 = T2 * self.external_E2_dir
         F3 = T3 * self.external_E3_dir
         F4 = T4 * self.external_E4_dir
+        Fdrag = C.get_drag(self.V, self.ROT_M)
 
         I1 = F1 * t
         I2 = F2 * t
         I3 = F3 * t
         I4 = F4 * t
-        I = I1+I2+I3+I4
+        Idrag = Fdrag * t
+        I = I1+I2+I3+I4+Idrag
         #------------------------------------------
 
         #Calculate torques and rotation speed------
@@ -126,6 +125,8 @@ class MachineP(Process):
             delta_L = t * TQ
             delta_w = delta_L/J
             self.W += delta_w
+        leng = C.get_len(self.W)
+        self.W *= max(0.5, (1 - t*11.0*(leng**1.3)/C.M))
         #------------------------------------------
 
         self.ROT_M = np.dot(C.rotation_matrix(self.W, C.get_len(self.W) * t), self.ROT_M)
@@ -145,60 +146,14 @@ class MachineP(Process):
             self.P[2] = 0.0
             self.V *= 0.9
 
-        tests = 1
+        tests = 0
         if tests:
-            #if random.random() > 0.999:
-                #print "dir:",self.external_E1_dir
-                #print "V:", self.V
-            self.inner_E1_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
-            self.inner_E2_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
+            if random.random() > 0.9994:
+                #print "W:",self.W
+                print "V:", self.V
+            #self.inner_E1_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
+            #self.inner_E2_dir = C.unitize(np.array([0.27 * np.cos(self.ticks * self.dt + 1.5*2), 0.0, 1.0]))
 
-
-
-    def projected_speed_in(self, T):
-        return self.V + self.A_apx * T
-
-    def extrapolate_position(self, T):
-        extrap = self.P + self.V*T + 0.5*self.A_apx*T*T
-        return extrap
-
-    def approximate_time_to(self, pos, dimension):
-        delta = pos - self.P[dimension]
-        v = self.V[dimension]
-        a = self.A_apx[dimension]
-        s1 = (-v + np.sqrt(v**2 + 2.0*a*delta))/(a)
-        s2 = (-v - np.sqrt(v**2 + 2.0*a*delta))/(a)
-        if s1 > 0:
-            return s1
-        elif s2 > 0:
-            return s2
-        else:
-            return False
-
-    def adjust_total_engine_power(self, coeff):
-        self.E1_pwr = self.rise(self.E1_pwr, coeff)
-        self.E2_pwr = self.rise(self.E2_pwr, coeff)
-        self.E3_pwr = self.rise(self.E3_pwr, coeff)
-        self.E4_pwr = self.rise(self.E4_pwr, coeff)
-
-
-    def rise(self, x, amount=None):
-        if not amount:
-            amount = self.dt
-        if x <= 0.0:
-            x = 0.01
-        x *= (1.00 + amount)
-        x = min(x, 1.0)
-        return x
-
-    def lower(self, x, amount=None):
-        if not amount:
-            amount = self.dt
-        if x <= 0.0:
-            return 0.0
-        x /= (1.00 + amount)
-        x = min(x, 1.0)
-        return x
 
     def update_external_engine_positions(self):
         self.external_E1_pos = np.dot(self.ROT_M, self.inner_E1_pos)
@@ -305,21 +260,13 @@ class MachineP(Process):
         C.highpriority()
         self.ticks = 0
         self.eval_tick = 0
-        self.dt = 0.01
-        self.min_dt = 0.00025               #PP
-        self.update_time = 0.01             #PP
-        self.frametime_eval_time = 0.1      #PP
         self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
         self.simulation_time = time.time()
         self.on = True
-        self.half_dt = self.dt/2
         while self.on:
             offset = self.simulation_time - time.time()
             if offset > self.dt:
-                self.waits += 1
                 time.sleep(offset*0.9)
-            else:
-                self.nowaits += 1
             self.physics_tick(self.dt)
             if self.ticks >= self.next_command_resolve:
                 self.resolve_commands()
@@ -358,6 +305,7 @@ class MachineP(Process):
             print "dt:",self.dt
             print "Offset:", offset   #remove
             print "update_interval:", self.update_interval
+            print "V:", self.V
             print ""
 
 
