@@ -71,20 +71,17 @@ class MachineP(Process):
         self.time_dilation = 1.0
         self.dt = 0.01
         self.half_dt = self.dt / 2
-        self.min_dt = 0.003
-        self.frametime_eval_time = 0.1
-        self.update_time = 0.01
-        if self.parameters:
-            self.min_dt = self.parameters["min_dt"]
-            self.frametime_eval_time = self.parameters["frametime_eval_time"]
-            self.update_time = self.parameters["update_time"]
+        self.min_dt = self.parameters["min_dt"]
+        self.frametime_eval_time = self.parameters["frametime_eval_time"]
+        self.update_time = self.parameters["update_time"]
         self.frametime_eval_interval = 10
         self.update_interval = 2
         self.command_resove_interval = 4
         self.offset_list = np.zeros(100, np.float32)
-        self.testing = True
         self.waits = 0
         self.nowaits = 0
+
+        self.testing = False
 
 
     def physics_tick(self, t):
@@ -321,47 +318,6 @@ class MachineP(Process):
             self.result_duct["kill_report"] = k_report
         elif self.transmit_mode == "queue":
             self.result_duct.put(k_report, False)
-
-
-
-if __name__ == '__main__':
-    machine_parameters ={"frametime_eval_time":0.1,
-                         "min_dt":0.00025,
-                         "update_time":0.01,
-                         "max_gain_coeff":0.9}
-    manager = Manager()
-    status = manager.dict()
-    status_que = Queue(1000)
-    command_que = Queue(100)
-    kill_cmd = ["stop", []]
-
-    machine = MachineP(command_queue=command_que, status_duct=status, parameters=machine_parameters)
-    print "start parallelisation..."
-    machine.start()
-    time.sleep(21)
-    command_que.put(kill_cmd)
-    time.sleep(0.1)
-    k_report = status["kill_report"]
-    print "Kill report:"
-    for p in k_report.items():
-        print p
-    print "Finished"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

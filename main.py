@@ -18,6 +18,26 @@ import drawFunctions
 from commandPromptWindow import CommandLine
 from stylesheets import getStylesheet
 
+
+class Holder(QtGui.QMainWindow):
+    def __init__(self, params=None):
+        super(Holder, self).__init__()
+        self.resize(1280,720)
+        self.simwidget = SimWidget(params)
+        self.simwidget.setParent(self)
+        self.setCentralWidget(self.simwidget)
+
+    def keyPressEvent(self, event):
+        self.simwidget.keyPressEvent(event)
+    def keyReleaseEvent(self, event):
+        self.simwidget.keyReleaseEvent(event)
+    def mousePressEvent(self, event):
+        self.simwidget.mousePressEvent(event)
+    def closeEvent(self, *args, **kwargs):
+        self.simwidget.closeEvent(*args, **kwargs)
+        super(Holder, self).closeEvent(*args, **kwargs)
+
+
 class SimWidget(QtOpenGL.QGLWidget):
     xRotationChanged = QtCore.pyqtSignal(int)
     yRotationChanged = QtCore.pyqtSignal(int)
@@ -26,6 +46,7 @@ class SimWidget(QtOpenGL.QGLWidget):
     def __init__(self, parameters=None):
         super(SimWidget, self).__init__()
         self.params = parameters
+
         if not self.params:
             self.params = C.default_parameters
         self.z = np.array([0.0, 0.0, 1.0])
@@ -174,7 +195,6 @@ class SimWidget(QtOpenGL.QGLWidget):
 
 
     def resizeGL(self, width, height):
-        #viewport = C.getResolution(0.7)
         viewport = (int(self.width()), int(self.height()))
         width, height = viewport
         if min(width, height) < 0:
@@ -258,6 +278,8 @@ class SimWidget(QtOpenGL.QGLWidget):
         self.setZoom(tick)
 
     def keyPressHandle(self):
+        if self.commandline:
+            return None
         if self.LEFT_DOWN:
             self.camDirection[0] += 0.10
         if self.RIGHT_DOWN:
@@ -328,18 +350,19 @@ class SimWidget(QtOpenGL.QGLWidget):
         super(SimWidget, self).closeEvent(*args, **kwargs)
 
     def openCommandLine(self):
-        self.setEnabled(False)
         if not self.paused:
             self.pause()
-        self.commandline = CommandLine(self)
+        self.commandline = CommandLine(self, self.parent())
+        self.commandline.setFocus()
+        self.commandline.move(self.width()/2 - self.commandline.width()/2, self.height()/3 - self.commandline.height()/2)
         self.commandline.show()
 
     def command(self, cmd):
         print "received command:", cmd
 
     def release(self):
-        self.setEnabled(True)
         self.commandline = None
+        self.setFocus()
         if self.paused:
             self.pause()
 
@@ -352,7 +375,9 @@ if __name__ == '__main__':
               "update_time": 0.01,
               "dt_relaxation_coeff": 0.9}
     app = QtGui.QApplication(sys.argv)
-    mainWin = SimWidget(parameters=params)
+    #mainWin = SimWidget(parameters=params)
+    #mainWin.show()
+    mainWin = Holder(params)
     mainWin.show()
     sys.exit(app.exec_())
 

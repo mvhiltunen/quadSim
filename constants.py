@@ -148,7 +148,7 @@ def get_ax_angle_for_dirs(Dir1, Dir2):
 
 
 def highpriority():
-    """ Set the priority of the process to below-normal."""
+    """ Set the priority of the process to above-normal."""
     try:
         sys.getwindowsversion()
     except:

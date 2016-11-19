@@ -7,6 +7,7 @@ class widget0(QtGui.QWidget):
     def __init__(self, parent=None):
         super(widget0, self).__init__()
         self.setStyleSheet(getStylesheet("orange"))
+        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         self.lo = QtGui.QGridLayout()
         self.setUpStuff()
         self.setLayout(self.lo)
@@ -20,8 +21,9 @@ class widget0(QtGui.QWidget):
         self.setEnabled(True)
 
     def openCML(self):
-        self.cml = CommandLine(self)
-        self.setEnabled(False)
+        #self.setEnabled(False)
+        self.cml = CommandLine(self, self)
+        #self.cml.move(10,10)
         self.cml.show()
 
     def command(self, arg):
@@ -29,48 +31,17 @@ class widget0(QtGui.QWidget):
 
 
 
-class CommandPrompt(QtGui.QWidget):
-    def __init__(self, master):
-        super(CommandPrompt, self).__init__()
-        self.master = master
-        self.lo = QtGui.QGridLayout()
-        self.setUpStuff()
-        self.setLayout(self.lo)
-
-    def setUpStuff(self):
-        self.commandLine = QtGui.QTextEdit()
-        self.commandLine = CommandLine(self)
-        self.commandLine.setFixedSize(200, 40)
-        self.lo.addWidget(self.commandLine, 0, 0)
-
-    def keyPressEvent(self, QKeyEvent):
-        if QKeyEvent.key() == "enter":
-            print(self.commandLine.toPlainText())
-            print QKeyEvent.key()
-        self.close()
-
-    def closeEvent(self, QCloseEvent):
-        self.master.release()
-        try:
-            pause = self.master.__getattr__("pause")
-            self.master.pause()
-        except:
-            pass
-        super(CommandPrompt, self).closeEvent(QCloseEvent)
-
-
 
 class CommandLine(QtGui.QLineEdit):
-    def __init__(self, master):
-        super(CommandLine, self).__init__()
-        self.setStyleSheet(getStylesheet("orange"))
+    def __init__(self, master, toParent=None):
+        super(CommandLine, self).__init__(toParent)
         self.master = master
+        self.setStyleSheet(getStylesheet("orange"))
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         self.setFixedSize(400, 25)
 
     def keyPressEvent(self, QKeyEvent):
         super(CommandLine, self).keyPressEvent(QKeyEvent)
-        print QKeyEvent.key()
         if QKeyEvent.key() == 16777220:
             self.send()
         if QKeyEvent.key() == 16777216:
@@ -86,6 +57,20 @@ class CommandLine(QtGui.QLineEdit):
         if self.master:
             self.master.release()
         super(CommandLine, self).closeEvent(*args, **kwargs)
+
+
+class SuggestionField(QtGui.QTextEdit):
+    def __init__(self, parent):
+        super(SuggestionField, self).__init__(parent)
+        self.commands = ["reset","kill","set_time_dilation","foo","bar","foobar"]
+
+    def setSuggestions(self, string):
+        #THIS is ugly
+        L = []
+        for cmd in self.commands:
+            if cmd.startswith(string):
+                L.append(cmd)
+        if L:
 
 
 

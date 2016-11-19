@@ -4,6 +4,7 @@ import numpy as np
 import multiprocessing
 
 
+
 class pProcess(Process):
     def __init__(self, transmitter, mode):
         super(pProcess, self).__init__()
@@ -13,6 +14,7 @@ class pProcess(Process):
         for i in range(4):
             name = "E{}_ax_angle".format(i+1)
             d[name] = np.array(range(8))
+
 
 
     def run(self):
@@ -30,35 +32,29 @@ class pProcess(Process):
         print "time in Process with {0}:".format(self.mode), T1/1000.0
         sys.exit(1)
 
-if __name__ == "__main__":
-    manager = Manager()
-    v = Value('d', 0)
-    a = Array('d', [0]*10)
-    d = manager.dict()
-    Q = Queue(100000)
 
-    Pq = pProcess(Q, "que")
-    Pv = pProcess(v, "value")
-    Pd = pProcess(d, "dict")
-
-    Pq.start()
-    time.sleep(0.6)
-    Pv.start()
-    time.sleep(0.6)
-    Pd.start()
-    time.sleep(0.6)
+def addOne(name, V, lock):
+    V.value += 1
+    time.sleep(0.01)
+    V.value += 1
 
 
-    print "actives: ", multiprocessing.active_children()
-    for pr in multiprocessing.active_children():
-        pr.terminate()
-        pass
-    time.sleep(0.1)
-    #Pq.terminate()
-    #Pv.terminate()
-    #Pd.terminate()
-    print "actives: ", multiprocessing.active_children()
-    sys.exit()
+def func(val):
+    for i in range(50):
+        val.value += 1
+
+
+if __name__ == '__main__':
+    import time
+    v = Value('f', 0)
+    print "A"
+    procs = [Process(target=func, args=(v,)) for i in range(10)]
+    print "B"
+    for p in procs: p.start()
+    print "C"
+    for p in procs: p.join()
+    print "D"
+    print v.value
 
 
 
