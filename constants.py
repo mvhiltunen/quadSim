@@ -1,6 +1,13 @@
 import numpy as np
 import random, math, sys, os
 
+
+def inverse_dict(d):
+    dd = {}
+    for i in d:
+        dd[d[i]] = i
+    return dd
+
 #some shit
 fullHD = np.array((1920, 1080), np.int32)
 
@@ -44,9 +51,20 @@ identity = np.asarray([[1.0, 0.0, 0.0],
 default_parameters = {"mode":"single",
                       "min_dt":0.00025,
                       "goal_fps":60,
-                      "frametime_eval_time":0.1,
+                      "timestep_eval_time":0.1,
                       "update_time":0.01,
+                      "MOVE_OBJECT":False,
+                      "MOVE_FLOOR":False,
+                      "control_interval":0.02,
                       "dt_relaxation_coeff":0.9}
+
+control_keys_to_codes = {"W":87, "A":65, "S":83, "D":68, "UP":16777235, "DOWN":16777237,
+                     "RIGHT":16777236, "LEFT":16777234, "SPACE":32, "CTRL":16777249}
+control_codes_to_keys = inverse_dict(control_keys_to_codes)
+
+main_keys_to_codes = {"P":80,"C":67}
+main_codes_to_keys = inverse_dict(main_keys_to_codes)
+
 
 
 def unitize(v):
@@ -169,6 +187,7 @@ def highpriority():
     else:
         import os
         os.nice(1)
+
 
 
 

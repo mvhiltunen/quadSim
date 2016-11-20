@@ -6,10 +6,11 @@ import multiprocessing
 
 
 class MachineP(Process):
-    def __init__(self, command_queue=None, status_duct=None, parameters=None):
+    def __init__(self, command_queue=None, status_duct=None, control_queue=None, parameters=None):
         super(MachineP, self).__init__()
         self.command_queue = command_queue
         self.result_duct = status_duct
+        self.control_queue = control_queue
         self.parameters = parameters
         if type(status_duct) == multiprocessing.managers.DictProxy:
             self.transmit_mode = "dict"
@@ -17,6 +18,7 @@ class MachineP(Process):
             self.transmit_mode = "queue"
 
         _accuracy = np.float64
+        self.accuracy = _accuracy
         self.V_log = [np.array([0.0,0.0,0.0], _accuracy)]
         self.A_apx = np.array([0.0, 0.0, 0.0], _accuracy)
 
@@ -60,10 +62,10 @@ class MachineP(Process):
 
         self.legal_commands = {"stop":True, "pause":True,
                                "set_up":True, "steer":True, "give_full_state":True}
-        self.ticks = 0
+        self.tick = 0
         self.eval_tick = 0
         self.next_command_resolve = 0
-        self.next_frametime_eval = 0
+        self.next_timestep_eval = 0
         self.next_update = 0
         self.on = False
         self.paused = False
@@ -72,21 +74,26 @@ class MachineP(Process):
         self.dt = 0.01
         self.half_dt = self.dt / 2
         self.min_dt = self.parameters["min_dt"]
-        self.frametime_eval_time = self.parameters["frametime_eval_time"]
+        self.timestep_eval_time = self.parameters["timestep_eval_time"]
         self.update_time = self.parameters["update_time"]
-        self.frametime_eval_interval = 10
+        self.timestep_eval_interval = 10
         self.update_interval = 2
         self.command_resove_interval = 4
         self.offset_list = np.zeros(100, np.float32)
         self.waits = 0
         self.nowaits = 0
-
         self.testing = False
+
+    def reset_pos(self):
+        self.P = np.array([0.0, 0.0, 1.0], self.accuracy)
+        self.V = np.array([0.0, 0.0, 0.0], self.accuracy)
+        self.W = np.array([0.0, 0.0, 0.0], self.accuracy)
+        self.ROT_M = C.rotation_matrix(self.z, 0.0)
 
 
     def physics_tick(self, t):
         self.simulation_time += t/self.time_dilation
-        self.ticks += 1
+        self.tick += 1
 
         #Calculate Forces-------------------------
         T1 = C.get_thrust(1, self.E1_pwr)
@@ -232,7 +239,7 @@ class MachineP(Process):
             self.result_duct["draw_info"] = d
         elif self.transmit_mode == "queue":
             self.result_duct.put(d, False)
-        self.next_update = self.ticks + self.update_interval
+        self.next_update = self.tick + self.update_interval
 
     def stop(self):
         self.on = False
@@ -246,7 +253,7 @@ class MachineP(Process):
         while not self.command_queue.empty():
             command = self.command_queue.get()
             self.execute_cmd(command)
-        self.next_command_resolve = self.ticks+self.command_resove_interval
+        self.next_command_resolve = self.tick + self.command_resove_interval
 
     def execute_cmd(self, command):
         if command[0] in self.legal_commands:
@@ -255,9 +262,9 @@ class MachineP(Process):
 
     def run(self):
         C.highpriority()
-        self.ticks = 0
+        self.tick = 0
         self.eval_tick = 0
-        self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
+        self.timestep_eval_interval = int(self.timestep_eval_time / self.dt) + 1
         self.simulation_time = time.time()
         self.on = True
         while self.on:
@@ -265,20 +272,20 @@ class MachineP(Process):
             if offset > self.dt:
                 time.sleep(offset*0.9)
             self.physics_tick(self.dt)
-            if self.ticks >= self.next_command_resolve:
+            if self.tick >= self.next_command_resolve:
                 self.resolve_commands()
-            if self.ticks >= self.next_update:
+            if self.tick >= self.next_update:
                 self.update_results()
-            if self.ticks >= self.next_frametime_eval:
-                self.update_frametime()
+            if self.tick >= self.next_timestep_eval:
+                self.update_timestep()
             while self.paused:
                 time.sleep(0.1)
                 self.resolve_commands()
+        if self.testing:
+            self.kill_report()
 
-        self.kill_report()
 
-
-    def update_frametime(self):
+    def update_timestep(self):
         self.eval_tick += 1
         #MEASURE OFFSET AND ADJUST DT
         offset = self.simulation_time - time.time()
@@ -288,7 +295,7 @@ class MachineP(Process):
             gain_coeff = min(0.9, gain_coeff)
             self.dt = max(self.min_dt, (1.0-gain_coeff)*self.dt)
         elif offset < 0:
-            gain = offset / self.frametime_eval_interval
+            gain = offset / self.timestep_eval_interval
             gain_coeff = abs(gain / self.dt)
             gain_coeff = min(0.9, gain_coeff)           #PP
             self.dt *= (1.0 + gain_coeff)
@@ -296,9 +303,9 @@ class MachineP(Process):
         #UPDATE INTERVAL VALUES ACCORDING TO NEW DT
         self.update_interval = int(self.update_time / self.dt)
         self.command_resove_interval = self.update_interval * 2
-        self.frametime_eval_interval = int(self.frametime_eval_time/self.dt)+1
-        self.next_frametime_eval = self.ticks + self.frametime_eval_interval
-        if self.eval_tick % 10 == 0 and self.testing:
+        self.timestep_eval_interval = int(self.timestep_eval_time / self.dt) + 1
+        self.next_timestep_eval = self.tick + self.timestep_eval_interval
+        if self.testing and self.eval_tick % 10 == 0:
             print "dt:",self.dt
             print "Offset:", offset   #remove
             print "update_interval:", self.update_interval
@@ -318,6 +325,7 @@ class MachineP(Process):
             self.result_duct["kill_report"] = k_report
         elif self.transmit_mode == "queue":
             self.result_duct.put(k_report, False)
-
+        for k in k_report:
+            print k, k_report[k]
 
 

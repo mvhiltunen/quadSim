@@ -1,50 +1,51 @@
 import time, threading
 from PyQt4 import QtCore, QtGui, Qt
+import random
 
-class timer(threading.Thread):
-    def __init__(self, target, args):
-        super(timer, self).__init__()
-        self.target = target
-        self.args = args
+class Timer(QtGui.QWidget):
+    def __init__(self, arg):
+        super(Timer, self).__init__()
+        self.args = arg
         self.on = False
         self.ms = None
+        self.frame_timer = QtCore.QTimer(self)
+        self.frame_timer.timeout.connect(self.printti)
+        self.frame_timer.start(50)
+        self.paused = False
+        self.resize(200,300)
+        self.num = 0
+        self.numlabel = QtGui.QLabel("0")
+        self.statlabel = QtGui.QLabel("-")
+        self.leiska = QtGui.QVBoxLayout()
+        self.setLayout(self.leiska)
+        self.leiska.addWidget(self.numlabel)
+        self.leiska.addWidget(self.statlabel)
 
-    def set_interval(self, ms):
-        self.ms = ms
+    def keyPressEvent(self, QKeyEvent):
+        if QKeyEvent.key() == 80:
+            self.pause()
+        if QKeyEvent.key() == 32:
+            self.printti()
 
+    def pause(self):
+        if self.paused:
+            self.frame_timer.start(10)
+        else:
+            self.frame_timer.stop()
+        self.paused = not self.paused
 
-    def run(self):
-        self.on = True
-        if self.ms:
-            tt = time.time()
-            interval = self.ms/1000.0
-            while self.on:
-                gap = time.time()-tt
-                if gap < interval:
-                    time.sleep(interval-gap)
-                tt = time.time()
-                self.target(*self.args)
+    def printti(self):
+        self.num += 1
+        self.numlabel.setText(str(self.num))
+        self.statlabel.setText(str(self.frame_timer.isActive()))
 
 
 if __name__ == '__main__':
     import sys
-    def a(value=0):
-        k = 0
-        print value
-        for i in xrange(value):
-            k += 100
-
-
     app = QtGui.QApplication(sys.argv)
-    L = [56]
-    T = timer(a, L)
-    T.set_interval(333)
-    T.start()
-    time.sleep(3)
-    L[0] = 34
-    timer3 = Qt.QTimer()
-    timer3.timeout.connect(a)
-    timer3.start(200)
+    T = Timer(3)
+    T.show()
+
     sys.exit(app.exec_())
 
 
