@@ -1,6 +1,6 @@
 import numpy as np
 import random, math, sys, os
-
+import multiprocessing
 
 def inverse_dict(d):
     dd = {}
@@ -48,15 +48,17 @@ identity = np.asarray([[1.0, 0.0, 0.0],
                        [0.0, 1.0, 0.0],
                        [0.0, 0.0, 1.0]], np.float64)
 
-default_parameters = {"mode":"single",
+default_parameters = {"mode":"parallel",
                       "min_dt":0.00025,
                       "goal_fps":60,
-                      "timestep_eval_time":0.1,
-                      "update_time":0.01,
+                      "timestep_eval_frequency":10.0,
+                      "update_frequency":100.0,
+                      "control_frequency":50.0,
+                      "control_sharpness":97.0,
                       "MOVE_OBJECT":False,
                       "MOVE_FLOOR":False,
-                      "control_interval":0.02,
-                      "dt_relaxation_coeff":0.9}
+                      "dt_relaxation_coeff":0.9,
+                      "testing":False}
 
 control_keys_to_codes = {"W":87, "A":65, "S":83, "D":68, "UP":16777235, "DOWN":16777237,
                      "RIGHT":16777236, "LEFT":16777234, "SPACE":32, "CTRL":16777249}
@@ -162,6 +164,7 @@ def get_ax_angle_for_dirs(Dir1, Dir2):
     axis = np.cross(Dir1, Dir2)
     return axis, angle
 
+def rotate_vector(V1, V2, )
 
 
 
@@ -188,7 +191,17 @@ def highpriority():
         import os
         os.nice(1)
 
-
+def compose_control_state():
+    D = {}
+    D["E1_pwr"] = multiprocessing.Value('d')
+    D["E2_pwr"] = multiprocessing.Value('d')
+    D["E3_pwr"] = multiprocessing.Value('d')
+    D["E4_pwr"] = multiprocessing.Value('d')
+    D["E1_dir"] = multiprocessing.Array('d', 3)
+    D["E2_dir"] = multiprocessing.Array('d', 3)
+    D["E3_dir"] = multiprocessing.Array('d', 3)
+    D["E4_dir"] = multiprocessing.Array('d', 3)
+    return D
 
 
 def getResolution(coeff):

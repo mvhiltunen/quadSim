@@ -38,7 +38,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         self.obtainCamVectors()
         self.drawInfoDict = None
 
-
         self.goal_fps = self.params["goal_fps"]
         self.goal_frametime = int(round(1000.0/self.goal_fps))
 

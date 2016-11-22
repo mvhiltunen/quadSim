@@ -47,6 +47,11 @@ if __name__ == '__main__':
     T.show()
 
     sys.exit(app.exec_())
+    import ctypes
+
+    ctypes.create_string_buffer()
+    ctypes.c_int()
+    ctypes. by
 
 
 

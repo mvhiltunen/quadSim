@@ -13,7 +13,7 @@ class Controller:#Process?
         self.motor_pwr_names = {0:"E0P", 1:"E1P", 2:"E2P", 3:"E3P"}
         self.motor_dir_names = {0:"E0D", 1:"E1D", 2:"E2D", 3:"E3D"}
         self.on = False
-        self.interval = self.params["control_interval"]
+        self.frequency = self.params["control_frequency"]
 
     def start(self):
         self.on = True

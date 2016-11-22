@@ -64,9 +64,10 @@ class MachineP(Process):
                                "set_up":True, "steer":True, "give_full_state":True}
         self.tick = 0
         self.eval_tick = 0
-        self.next_command_resolve = 0
-        self.next_timestep_eval = 0
-        self.next_update = 0
+        self.next_cmd_resolve_tick = 0
+        self.next_timestep_eval_tick = 0
+        self.next_update_tick = 0
+        self.next_control_tick = 0
         self.on = False
         self.paused = False
         self.simulation_time = time.time()
@@ -74,15 +75,20 @@ class MachineP(Process):
         self.dt = 0.01
         self.half_dt = self.dt / 2
         self.min_dt = self.parameters["min_dt"]
-        self.timestep_eval_time = self.parameters["timestep_eval_time"]
-        self.update_time = self.parameters["update_time"]
+        self.timestep_eval_frequency = self.parameters["timestep_eval_frequency"]
+        self.update_frequency = self.parameters["update_frequency"]
+        self.control_frequency = self.parameters["control_frequency"]
+        self.control_relaxation = (1.0-self.parameters["control_sharpness"])**(1.0/self.control_frequency)  #large
+        self.control_relaxation_complement = 1.0 - self.control_relaxation #small
+        self.control_signal = {}
         self.timestep_eval_interval = 10
         self.update_interval = 2
-        self.command_resove_interval = 4
+        self.cmd_resove_interval = 4
+        self.control_interval = 2
         self.offset_list = np.zeros(100, np.float32)
         self.waits = 0
         self.nowaits = 0
-        self.testing = False
+        self.testing = self.parameters["testing"]
 
     def reset_pos(self):
         self.P = np.array([0.0, 0.0, 1.0], self.accuracy)
@@ -129,8 +135,9 @@ class MachineP(Process):
             delta_L = t * TQ
             delta_w = delta_L/J
             self.W += delta_w
-        leng = C.get_len(self.W)
-        self.W *= max(0.5, (1 - t*11.0*(leng**1.3)/C.M))
+        leng = C.get_len(self.W)+0.03
+        shape_coeff = 1+(1-abs((self.W*self.z).sum()/leng))*4
+        self.W *= max(0.95, (1 - shape_coeff*t*8.0*(leng**1.0)/C.M))
         #------------------------------------------
 
         self.ROT_M = np.dot(C.rotation_matrix(self.W, C.get_len(self.W) * t), self.ROT_M)
@@ -145,7 +152,7 @@ class MachineP(Process):
         if self.P[2] <= 0.0:
             self.V[2] = max(0.0, self.V[2])
 
-        self.P += t * self.V
+        self.P += (t * self.V)
         if self.P[2] < 0.0:
             self.P[2] = 0.0
             self.V *= 0.9
@@ -239,7 +246,7 @@ class MachineP(Process):
             self.result_duct["draw_info"] = d
         elif self.transmit_mode == "queue":
             self.result_duct.put(d, False)
-        self.next_update = self.tick + self.update_interval
+        self.next_update_tick = self.tick + self.update_interval
 
     def stop(self):
         self.on = False
@@ -253,7 +260,26 @@ class MachineP(Process):
         while not self.command_queue.empty():
             command = self.command_queue.get()
             self.execute_cmd(command)
-        self.next_command_resolve = self.tick + self.command_resove_interval
+        self.next_cmd_resolve_tick = self.tick + self.cmd_resove_interval
+
+    def resolve_control(self):
+        control_state = None
+        while not self.control_queue.empty():
+            control_state = self.control_queue.get()
+        if control_state:
+            for name in self.pwr_names:
+                self.control_signal[name] = control_state[name].value
+            for name in self.dir_names:
+                self.control_signal[name] = np.array(control_state[name])
+        self.E1_pwr = self.control_relaxation*self.E1_pwr + self.control_relaxation_complement*self.control_signal["E1_pwr"]
+        self.E2_pwr = self.control_relaxation*self.E2_pwr + self.control_relaxation_complement*self.control_signal["E2_pwr"]
+        self.E3_pwr = self.control_relaxation*self.E3_pwr + self.control_relaxation_complement*self.control_signal["E3_pwr"]
+        self.E4_pwr = self.control_relaxation*self.E4_pwr + self.control_relaxation_complement*self.control_signal["E4_pwr"]
+
+        self.
+
+        self.next_control_tick += self.control_interval
+
 
     def execute_cmd(self, command):
         if command[0] in self.legal_commands:
@@ -264,7 +290,7 @@ class MachineP(Process):
         C.highpriority()
         self.tick = 0
         self.eval_tick = 0
-        self.timestep_eval_interval = int(self.timestep_eval_time / self.dt) + 1
+        self.timestep_eval_interval = int(1.0/ (self.timestep_eval_frequency * self.dt)) + 1
         self.simulation_time = time.time()
         self.on = True
         while self.on:
@@ -272,12 +298,14 @@ class MachineP(Process):
             if offset > self.dt:
                 time.sleep(offset*0.9)
             self.physics_tick(self.dt)
-            if self.tick >= self.next_command_resolve:
+            if self.tick >= self.next_cmd_resolve_tick:
                 self.resolve_commands()
-            if self.tick >= self.next_update:
+            if self.tick >= self.next_update_tick:
                 self.update_results()
-            if self.tick >= self.next_timestep_eval:
+            if self.tick >= self.next_timestep_eval_tick:
                 self.update_timestep()
+            if self.tick >= self.next_control_tick:
+                self.resolve_control()
             while self.paused:
                 time.sleep(0.1)
                 self.resolve_commands()
@@ -301,10 +329,12 @@ class MachineP(Process):
             self.dt *= (1.0 + gain_coeff)
         self.half_dt = self.dt / 2
         #UPDATE INTERVAL VALUES ACCORDING TO NEW DT
-        self.update_interval = int(self.update_time / self.dt)
-        self.command_resove_interval = self.update_interval * 2
-        self.timestep_eval_interval = int(self.timestep_eval_time / self.dt) + 1
-        self.next_timestep_eval = self.tick + self.timestep_eval_interval
+        self.update_interval = int(1.0/(self.update_frequency * self.dt))
+        self.timestep_eval_interval = int(1.0/ (self.timestep_eval_frequency * self.dt)) + 1
+        self.control_interval = int(1.0/ (self.control_frequency * self.dt)) + 1
+        self.cmd_resove_interval = self.update_interval * 2
+
+        self.next_timestep_eval_tick = self.tick + self.timestep_eval_interval
         if self.testing and self.eval_tick % 10 == 0:
             print "dt:",self.dt
             print "Offset:", offset   #remove

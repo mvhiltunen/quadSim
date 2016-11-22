@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
 
+
 from PyQt4 import QtCore, QtGui, QtOpenGL
 from sip import setdestroyonexit
 from OpenGL.GLU import *
@@ -109,15 +110,19 @@ class Holder(QtGui.QMainWindow):
 
 
 
-
-
 if __name__ == '__main__':
-    params = {"mode": "parallel",
-              "min_dt": 0.00025,
-              "goal_fps": 60,
-              "frametime_eval_time": 0.1,
-              "update_time": 0.01,
-              "dt_relaxation_coeff": 0.9}
+    params = {"mode":"parallel",
+              "min_dt":0.00025,
+              "goal_fps":60,
+              "timestep_eval_frequency":10.0,
+              "update_frequency":100.0,
+              "control_frequency":50.0,
+              "control_sharpness":97.0,
+              "MOVE_OBJECT":False,
+              "MOVE_FLOOR":False,
+              "dt_relaxation_coeff":0.9,
+              "testing":True}
+
     app = QtGui.QApplication(sys.argv)
     mainWin = Holder(params)
     mainWin.show()
