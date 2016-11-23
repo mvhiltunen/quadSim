@@ -1,6 +1,9 @@
 import time, threading
 from PyQt4 import QtCore, QtGui, Qt
 import random
+import nanotime
+import threading
+
 
 class Timer(QtGui.QWidget):
     def __init__(self, arg):
@@ -29,7 +32,7 @@ class Timer(QtGui.QWidget):
 
     def pause(self):
         if self.paused:
-            self.frame_timer.start(10)
+            self.frame_timer.start(20)
         else:
             self.frame_timer.stop()
         self.paused = not self.paused

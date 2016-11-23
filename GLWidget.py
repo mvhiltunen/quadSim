@@ -125,7 +125,7 @@ class GLWidget(QtOpenGL.QGLWidget):
 
         glPushMatrix()
         glLoadIdentity()
-        glRotate(-self.d90 * 57.2957795, 1.0, 0.0, 0.0)
+        glRotate(self.d90 * -57.2957795, 1.0, 0.0, 0.0)
         glRotate(self.camDirection[1] * -57.2957795, 1.0, 0.0, 0.0)
         glRotate((self.camDirection[0]-self.d90) * -57.2957795, 0.0, 0.0, 1.0)
         glTranslate(-self.camPosition[0], -self.camPosition[1], -self.camPosition[2])
@@ -251,7 +251,7 @@ class GLWidget(QtOpenGL.QGLWidget):
 
 
     def get_draw_info(self):
-        return self.drawInfoDict["draw_info"]
+        return self.drawInfoDict["state"]
 
 
     def freeze(self):

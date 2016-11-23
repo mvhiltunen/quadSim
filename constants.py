@@ -28,10 +28,10 @@ H1 = 0.40*scale_factor
 L1 = 7.04*scale_factor
 L2 = 4.40*scale_factor
 
-E1_center = 80
-E2_center = 80
-E3_center = 80
-E4_center = 80
+E1_offset = 0.8
+E2_offset = 0.8
+E3_offset = 0.8
+E4_offset = 0.8
 
 
 face_area = 8.5170*scale_factor
@@ -53,8 +53,10 @@ default_parameters = {"mode":"parallel",
                       "goal_fps":60,
                       "timestep_eval_frequency":10.0,
                       "update_frequency":100.0,
-                      "control_frequency":50.0,
-                      "control_sharpness":97.0,
+                      "control_frequency":40.0,
+                      "command_frequency":40.0,
+                      "control_sharpness":0.97,
+                      "engine_rotation_speed":3.141/3,
                       "MOVE_OBJECT":False,
                       "MOVE_FLOOR":False,
                       "dt_relaxation_coeff":0.9,
@@ -67,13 +69,16 @@ control_codes_to_keys = inverse_dict(control_keys_to_codes)
 main_keys_to_codes = {"P":80,"C":67}
 main_codes_to_keys = inverse_dict(main_keys_to_codes)
 
+pwr_names = ["E1_pwr", "E2_pwr", "E3_pwr", "E4_pwr"]
+dir_names = ["E1_dir", "E2_dir", "E3_dir", "E4_dir"]
+
 
 
 def unitize(v):
     leng = get_len(v)
     if leng == 0.0:
         return v
-    return v/get_len(v)
+    return v/leng
 
 def get_thrust(engine, power):
     return efficiencies[engine] * power * max_power
@@ -100,7 +105,8 @@ def get_speed(v):
     return np.sqrt((v*v).sum())
 
 def get_drag(v, ROT_M):
-    return v*v*drag_constant*get_rel_facing_M(v, ROT_M)
+    l = get_len(v)
+    return unitize(v)*l*l*drag_constant*get_rel_facing_M(v, ROT_M)
 
 def get_torq(p, f):
     return np.cross(p,f)
@@ -159,13 +165,29 @@ def axis_angle(matrix):
 
 
 def get_ax_angle_for_dirs(Dir1, Dir2):
+    #angle = np.arccos(max(-1.0,min(1.0,np.dot(Dir1, Dir2))))
     angle = np.arccos(np.dot(Dir1, Dir2))
     angle = angle
-    axis = np.cross(Dir1, Dir2)
+    axis = unitize(np.cross(Dir1, Dir2))
     return axis, angle
 
-def rotate_vector(V1, V2, )
+def get_angle(v1, v2):
+    '''both in unity'''
+    assert(abs(get_len(v1))-1.0 < 0.00001)
+    assert(abs(get_len(v2))-1.0 < 0.00001)
+    return np.arccos(v1.dot(v2))
 
+def rotate_vector(v1, v2, rad):
+    '''rotate v1 towards v2 by rad radians'''
+    axis = unitize(np.cross(v1, v2))
+    rot_M = rotation_matrix(axis, rad)
+    return np.dot(rot_M, v1)
+
+def rotate_towards_with_increment(v1, v2, d_rad):
+    if get_angle(v1, v2) <= d_rad:
+        return v2
+    else:
+        return rotate_vector(v1, v2, d_rad)
 
 
 def highpriority():
@@ -191,6 +213,20 @@ def highpriority():
         import os
         os.nice(1)
 
+
+def compose_nonparallel_control_state():
+    D = {}
+    D["E1_pwr"] = 0.0
+    D["E2_pwr"] = 0.0
+    D["E3_pwr"] = 0.0
+    D["E4_pwr"] = 0.0
+    D["E1_dir"] = np.array([0.0,0.0,1.0], np.float32)
+    D["E2_dir"] = np.array([0.0,0.0,1.0], np.float32)
+    D["E3_dir"] = np.array([0.0,0.0,1.0], np.float32)
+    D["E4_dir"] = np.array([0.0,0.0,1.0], np.float32)
+    return D
+
+
 def compose_control_state():
     D = {}
     D["E1_pwr"] = multiprocessing.Value('d')
@@ -201,6 +237,11 @@ def compose_control_state():
     D["E2_dir"] = multiprocessing.Array('d', 3)
     D["E3_dir"] = multiprocessing.Array('d', 3)
     D["E4_dir"] = multiprocessing.Array('d', 3)
+    for name in pwr_names:
+        D[name].value = 0.0
+    for name in dir_names:
+        D[name][0] = D[name][1] = 0.0
+        D[name][2] = 1.0
     return D
 
 
@@ -208,9 +249,5 @@ def getResolution(coeff):
     rez = fullHD.copy()
     rez *= float(coeff)
     return rez[0], rez[1]
-
-
-
-
 
 

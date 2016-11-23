@@ -12,7 +12,7 @@ from GLWidget import GLWidget
 from multiprocessing import Manager, Queue
 from machineSimPar import MachineP
 from commandPromptWindow import CommandLine
-
+from control import Controller
 
 class Holder(QtGui.QMainWindow):
     def __init__(self, params=None):
@@ -23,19 +23,23 @@ class Holder(QtGui.QMainWindow):
         self.glwidget = GLWidget(self.params)
         self.glwidget.setParent(self)
         self.setCentralWidget(self.glwidget)
-        self.command_que = Queue(1000)
+        self.machine_command_que = Queue(1000)
+        self.control_command_que = Queue(1000)
         self.control_que = Queue(1000)
+        self.control_que.put(C.compose_nonparallel_control_state())
         self.manager = Manager()
         self.result_dict = self.manager.dict()
-        self.machine = MachineP(command_queue=self.command_que, status_duct=self.result_dict, control_queue=self.control_que, parameters=self.params)
-        #self.controller = Controller(status_duct=self.results_dict, control_queue=self.control_que, parameters=self.params)
-        self.result_dict["draw_info"] = self.machine.get_draw_info()
+        self.machine = MachineP(command_queue=self.machine_command_que, status_duct=self.result_dict, control_queue=self.control_que, parameters=self.params)
+        self.result_dict["state"] = self.machine.get_draw_info()
+        self.controller = Controller(status_duct=self.result_dict, control_queue=self.control_que, parameters=self.params)
         self.glwidget.setDrawInfoDict(self.result_dict)
         self.paused = False
         self.frozen = False
         self.commandline = None
         self.machine.start()
-        time.sleep(0.1)
+        time.sleep(0.05)
+        self.controller.start()
+        time.sleep(0.05)
         self.glwidget.unfreeze()
 
     def keyPressEvent(self, event):
@@ -66,7 +70,7 @@ class Holder(QtGui.QMainWindow):
         super(Holder, self).wheelEvent(event)
 
     def pause(self):
-        self.command_que.put(("pause", []))
+        self.machine_command_que.put(("pause", []))
         self.paused = not self.paused
 
     def freeze(self):
@@ -96,7 +100,7 @@ class Holder(QtGui.QMainWindow):
             self.pause()
 
     def closeEvent(self, *args, **kwargs):
-        self.command_que.put(("stop", []))
+        self.machine_command_que.put(("stop", []))
         self.glwidget.closeEvent(*args, **kwargs)
         for ch in multiprocessing.active_children():
             ch.terminate()
@@ -115,11 +119,13 @@ if __name__ == '__main__':
               "min_dt":0.00025,
               "goal_fps":60,
               "timestep_eval_frequency":10.0,
-              "update_frequency":100.0,
-              "control_frequency":50.0,
-              "control_sharpness":97.0,
+              "update_frequency":80.0,
+              "control_frequency":40.0,
+              "command_frequency":30.0,
+              "control_sharpness":0.97,
+              "engine_rotation_speed":3.141/3,
               "MOVE_OBJECT":False,
-              "MOVE_FLOOR":False,
+              "MOVE_FLOOR":True,
               "dt_relaxation_coeff":0.9,
               "testing":True}
 
