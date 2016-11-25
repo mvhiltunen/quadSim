@@ -31,7 +31,7 @@ class Holder(QtGui.QMainWindow):
         self.result_dict = self.manager.dict()
         self.machine = MachineP(command_queue=self.machine_command_que, status_duct=self.result_dict, control_queue=self.control_que, parameters=self.params)
         self.result_dict["state"] = self.machine.get_draw_info()
-        self.controller = Controller(status_duct=self.result_dict, control_queue=self.control_que, parameters=self.params)
+        self.controller = Controller(status_duct=self.result_dict, control_queue=self.control_que, command_queue=self.control_command_que, parameters=self.params)
         self.glwidget.setDrawInfoDict(self.result_dict)
         self.paused = False
         self.frozen = False
@@ -43,16 +43,17 @@ class Holder(QtGui.QMainWindow):
         self.glwidget.unfreeze()
 
     def keyPressEvent(self, event):
-        if event.key() in C.control_codes_to_keys:
+        if event.key() == C.main_keys_to_codes["C"]:
+            self.openCommandLine()
+        elif event.key() == C.main_keys_to_codes["P"]:
+            self.pause()
+        elif event.key() in C.control_codes_to_keys:
             self.glwidget.keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
         if event.key() in C.control_codes_to_keys:
             self.glwidget.keyReleaseEvent(event)
-        elif event.key() == C.main_keys_to_codes["P"]:
-            self.pause()
-        elif event.key() == C.main_keys_to_codes["C"]:
-            self.openCommandLine()
+
 
     def mousePressEvent(self, event):
         if not self.frozen:
@@ -71,6 +72,7 @@ class Holder(QtGui.QMainWindow):
 
     def pause(self):
         self.machine_command_que.put(("pause", []))
+        self.control_command_que.put(("pause", []))
         self.paused = not self.paused
 
     def freeze(self):
@@ -88,6 +90,8 @@ class Holder(QtGui.QMainWindow):
 
     def command(self, cmd):
         print "received command:", cmd
+        if cmd == "reset":
+            self.machine_command_que.put(("reset", []))
 
     def release(self):
         self.freeze()

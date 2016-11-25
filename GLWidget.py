@@ -91,7 +91,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         return angle
 
     def initializeGL(self):
-        print "InitGL...",
         lightPos = (5.0, 5.0, 10.0, 1.0)
 
         glLightfv(GL_LIGHT0, GL_POSITION, lightPos)
@@ -117,7 +116,6 @@ class GLWidget(QtOpenGL.QGLWidget):
         glEnable(GL_NORMALIZE)
         glClearColor(0.0, 0.0, 0.0, 1.0)
         glLoadIdentity()
-        print " ...done."
 
     def paintGL(self):
         self.framecount += 1

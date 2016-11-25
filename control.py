@@ -5,11 +5,12 @@ from multiprocessing import Process, Queue, Manager
 
 
 class Controller(Process):#Process?
-    def __init__(self, status_duct, control_queue, parameters):
+    def __init__(self, status_duct, control_queue, command_queue, parameters):
         super(Controller, self).__init__()
         self.params = parameters
         self.status_duct = status_duct
         self.control_queue = control_queue
+        self.command_queue = command_queue
         self.state = None
         self.saved = dict()
         self.control_state = C.compose_nonparallel_control_state()
@@ -18,14 +19,15 @@ class Controller(Process):#Process?
         self.y = np.array([0.0,1.0,0.0],np.float64)
         self.z = np.array([0.0,0.0,1.0],np.float64)
 
+        self.legal_commands = {"pause":True}
         self.motor_pwr_names = {0:"E0P", 1:"E1P", 2:"E2P", 3:"E3P"}
         self.motor_dir_names = {0:"E0D", 1:"E1D", 2:"E2D", 3:"E3D"}
         self.on = False
         self.paused = False
-        self.simtime = time.time()
         self.starttime = None
         self.frequency = self.params["control_frequency"]
         self.interval = 1.0/self.frequency
+
 
     def _run(self):
         '''main loop'''
@@ -36,6 +38,7 @@ class Controller(Process):#Process?
             self.getState()
             self.control_tick()
             self.putState()
+            self.resolve_commands()
             t = time.time()-T
             time.sleep(self.interval-t)
             while self.paused:
@@ -49,7 +52,6 @@ class Controller(Process):#Process?
     def getState(self):
         '''get machine state'''
         self.machine_state = self.status_duct["state"]
-
 
 
     def control_tick(self):
@@ -152,12 +154,18 @@ class Controller(Process):#Process?
         self._run()
         sys.exit(1)
 
+    def resolve_commands(self):
+        while not self.command_queue.empty():
+            command = self.command_queue.get()
+            if command[0] in self.legal_commands:
+                self.__getattribute__(command[0])(*command[1])
+
     def pause(self):
         self.paused = not self.paused
         if self.paused:
             pass
         else:
-            self.simtime = time.time()
+            self.starttime = time.time()
 
     def stop(self):
         self.on = False

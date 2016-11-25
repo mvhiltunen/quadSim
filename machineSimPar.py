@@ -1,5 +1,5 @@
 import numpy as np
-import random, time
+import random, time, sys
 import constants as C
 from multiprocessing import Process, Queue, Manager
 import multiprocessing
@@ -13,10 +13,6 @@ class MachineP(Process):
         self.control_queue = control_queue
 
         self.parameters = parameters
-        if type(status_duct) == multiprocessing.managers.DictProxy:
-            self.transmit_mode = "dict"
-        elif type(status_duct) == multiprocessing.queues.Queue:
-            self.transmit_mode = "queue"
 
         _accuracy = np.float64
         self.accuracy = _accuracy
@@ -63,8 +59,7 @@ class MachineP(Process):
         self.E3_pwr = 0.0
         self.E4_pwr = 0.0
 
-        self.legal_commands = {"stop":True, "pause":True,
-                               "set_up":True, "steer":True, "give_full_state":True}
+        self.legal_commands = {"stop":True, "pause":True,"reset":True}
         self.tick = 0
         self.eval_tick = 0
         self.next_cmd_resolve_tick = 0
@@ -119,13 +114,14 @@ class MachineP(Process):
             while self.paused:
                 time.sleep(0.1)
                 self.resolve_commands()
-        if self.testing:
-            self.kill_report()
+        self.close()
 
 
-    def reset_pos(self):
+    def reset(self):
         self.P = np.array([0.0, 0.0, 1.0], self.accuracy)
         self.V = np.array([0.0, 0.0, 0.0], self.accuracy)
+        self.A = np.array([0.0, 0.0, 0.0], self.accuracy)
+        self.extA = np.array([0.0, 0.0, 0.0], self.accuracy)
         self.W = np.array([0.0, 0.0, 0.0], self.accuracy)
         self.ROT_M = C.rotation_matrix(self.z, 0.0)
 
@@ -149,16 +145,11 @@ class MachineP(Process):
         Fdrag = C.get_drag(self.V, self.ROT_M)
 
         Ftot = F1+F2+F3+F4+Fdrag
-        if self.tick % 2000 == 0:
-            print "z:",np.dot(self.ROT_M, self.z)
-            print "A:",self.A
-            print "extA:",self.extA
-            print ""
-            #print "V", self.V
-            #print "Drag", Fdrag
-            #print "E1 dir in sim", self.inner_E1_dir
-            #print "extE1 dir in sim", self.external_E1_dir
-            #print "Impulse in sim", I
+        #if self.tick % 2000 == 0:
+            #print "z:",np.dot(self.ROT_M, self.z)
+            #print "A:",self.A
+            #print "extA:",self.extA
+            #print ""
         #--------------------------------------------
 
         #Calculate torques and rotation speed--------
@@ -283,10 +274,7 @@ class MachineP(Process):
 
     def update_results(self):
         d = self.get_draw_info()
-        if self.transmit_mode == "dict":
-            self.result_duct["state"] = d
-        elif self.transmit_mode == "queue":
-            self.result_duct.put(d, False)
+        self.result_duct["state"] = d
         self.next_update_tick = self.tick + self.update_interval
 
     def stop(self):
@@ -300,7 +288,8 @@ class MachineP(Process):
     def resolve_commands(self):
         while not self.command_queue.empty():
             command = self.command_queue.get()
-            self.execute_cmd(command)
+            if command[0] in self.legal_commands:
+                self.__getattribute__(command[0])(*command[1])
         self.next_cmd_resolve_tick = self.tick + self.cmd_resove_interval
 
     def resolve_control(self):
@@ -322,11 +311,6 @@ class MachineP(Process):
         self.inner_E2_dir = C.rotate_towards_with_increment(self.inner_E2_dir, self.control_state["E2_dir"], d_rot)
         self.inner_E3_dir = C.rotate_towards_with_increment(self.inner_E3_dir, self.control_state["E3_dir"], d_rot)
         self.inner_E4_dir = C.rotate_towards_with_increment(self.inner_E4_dir, self.control_state["E4_dir"], d_rot)
-
-
-    def execute_cmd(self, command):
-        if command[0] in self.legal_commands:
-            self.__getattribute__(command[0])(*command[1])
 
 
     def update_timestep(self):
@@ -367,11 +351,13 @@ class MachineP(Process):
         k_report["dt"] = self.dt
         k_report["waits"] = self.waits
         k_report["nowaits"] = self.nowaits
-        if self.transmit_mode == "dict":
-            self.result_duct["kill_report"] = k_report
-        elif self.transmit_mode == "queue":
-            self.result_duct.put(k_report, False)
+        self.result_duct["kill_report"] = k_report
         for k in k_report:
             print k, k_report[k]
+
+    def close(self):
+        if self.parameters["testing"]:
+            self.kill_report()
+        sys.exit(1)
 
 
