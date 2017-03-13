@@ -13,8 +13,11 @@ $RECYCLE.BIN/
 *.msi
 *.msm
 *.msp
+
+#Pycharm files and .pycs
 *.idea
 *.pyc
+
 # Windows shortcuts
 *.lnk
 
